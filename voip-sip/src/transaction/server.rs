@@ -13,6 +13,8 @@ use crate::transaction::{T1, T2, T4, TransactionMessage};
 use crate::transport::incoming::IncomingRequest;
 use crate::transport::outgoing::{OutgoingDestInfo, OutgoingResponse, TargetTransportInfo};
 
+const CHANNEL_RECV_BUG: &str = "receiver should exist when no provisional response is sent";
+
 /// A Server Transaction.
 ///
 /// Represents a SIP server transaction.
@@ -165,9 +167,9 @@ impl ServerTransaction {
         let deadline = Instant::now() + if is_invite_tsx { T4 } else { T1 * 64 };
 
         let mut channel = if let Some(task) = self.provisonal_retrans_handle.take() {
-            task.join_handle.await.unwrap()
+            task.join_handle.await.map_err(std::io::Error::from)?
         } else {
-            self.receiver.take().unwrap()
+            self.receiver.take().expect(CHANNEL_RECV_BUG)
         };
 
         if is_invite_tsx && !self.is_reliable() {
@@ -276,9 +278,7 @@ impl ServerTransaction {
         &mut self,
         mut response: OutgoingResponse,
     ) -> ProvisionalRetransHandle {
-        let mut receiver = self.receiver.take().expect(
-            "Transaction receiver missing while calling `spawn_retransmit_provisional_task`",
-        );
+        let mut receiver = self.receiver.take().expect(CHANNEL_RECV_BUG);
 
         self.set_state(State::Proceeding);
 
