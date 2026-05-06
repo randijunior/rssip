@@ -1167,6 +1167,12 @@ mod tests {
             .receive_final_response()
             .await
             .expect("Error receiving final response");
+        
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 3xx response"
+        );
 
         ctx.timer.timer_k().await;
         tokio::task::yield_now().await;
