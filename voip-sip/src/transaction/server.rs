@@ -11,7 +11,7 @@ use crate::transaction::fsm::{State, StateMachine};
 use crate::transaction::manager::TransactionKey;
 use crate::transaction::{T1, T2, T4, TransactionMessage};
 use crate::transport::incoming::IncomingRequest;
-use crate::transport::outgoing::{OutgoingResponse};
+use crate::transport::outgoing::{OutgoingDestInfo, OutgoingResponse, TargetTransportInfo};
 
 /// A Server Transaction.
 ///
@@ -21,6 +21,7 @@ pub struct ServerTransaction {
     endpoint: Endpoint,
     state_machine: StateMachine,
     request: IncomingRequest,
+    target_info: Option<TargetTransportInfo>,
     receiver: Option<mpsc::Receiver<TransactionMessage>>,
     provisonal_retrans_handle: Option<ProvisionalRetransHandle>,
 }
@@ -58,6 +59,7 @@ impl ServerTransaction {
             request,
             state_machine,
             receiver: Some(receiver),
+            target_info: None,
             provisonal_retrans_handle: None,
         }
     }
@@ -150,28 +152,23 @@ impl ServerTransaction {
             self.set_state(State::Terminated);
             return Ok(());
         }
-
         // INVITE - 300-699 from TU send response --> Completed
         // non-INVITE - 200-699 from TU send response --> Completed
         self.set_state(State::Completed);
 
-        // non-INVITE
-        // When the server transaction enters the "Completed" state, it MUST set
-        // Timer J to fire in 64*T1 seconds for unreliable transports, and zero
-        // seconds for reliable transports.
-        if !is_invite_tsx && self.is_reliable() {
+        // INVITE/non-INVITE - reliable --> timer_k/timer_j fire in zero seconds.
+        if self.is_reliable() {
             self.set_state(State::Terminated);
             return Ok(());
         }
+        // timer_k/timer_j
+        let deadline = Instant::now() + if is_invite_tsx { T4 } else { T1 * 64 };
 
         let mut channel = if let Some(task) = self.provisonal_retrans_handle.take() {
             task.join_handle.await.unwrap()
         } else {
             self.receiver.take().unwrap()
         };
-
-        // timer_h/timer_j
-        let deadline = Instant::now() + T1 * 64;
 
         if is_invite_tsx && !self.is_reliable() {
             tokio::spawn(async move {
@@ -225,7 +222,24 @@ impl ServerTransaction {
         code: StatusCode,
         reason: Option<ReasonPhrase>,
     ) -> OutgoingResponse {
-        self.endpoint.create_response(&self.request, code, reason)
+        if let Some(target) = self.target_info.clone() {
+            let source_addr = target.transport.local_addr();
+            let response = self.endpoint.create_response(&self.request, code, reason);
+
+            let dest_info = OutgoingDestInfo {
+                host_port: (source_addr.into(), target.transport.protocol()),
+                transport: Some(target),
+            };
+
+            OutgoingResponse {
+                response,
+                dest_info,
+                encoded: Default::default(),
+            }
+        } else {
+            self.endpoint
+                .create_outgoing_response(&self.request, code, reason)
+        }
     }
 
     #[cfg(test)]
@@ -241,8 +255,12 @@ impl ServerTransaction {
         &mut self.state_machine
     }
 
-    async fn send_response(&self, response: &mut OutgoingResponse) -> Result<()> {
+    async fn send_response(&mut self, response: &mut OutgoingResponse) -> Result<()> {
         self.endpoint.send_outgoing_response(response).await?;
+
+        if self.target_info.is_none() {
+            self.target_info = response.dest_info.transport.clone();
+        }
         Ok(())
     }
 
@@ -273,7 +291,7 @@ impl ServerTransaction {
                 tokio::select! {
                     biased;
 
-                    _= state_rx.changed() => {
+                    _= state_rx.recv() => {
                         log::debug!("Leaving Proceding State...");
                         return receiver;
                     }
@@ -324,10 +342,10 @@ mod tests {
 
     #[tokio::test]
     async fn invite_transitions_to_proceeding_when_created_from_request() {
-        let mut ctx = ServerTestContext::setup(SipMethod::Invite).await;
+        let ctx = ServerTestContext::setup(SipMethod::Invite).await;
 
-        assert_eq_state!(
-            ctx.state,
+        assert_eq!(
+            ctx.server.state_machine.state(),
             State::Proceeding,
             "server INVITE must transition to the Proceeding state when constructed for a request"
         );
@@ -518,7 +536,7 @@ mod tests {
     async fn invite_retransmit_response_when_timer_g_fires() {
         let mut ctx = ServerTestContext::setup(SipMethod::Invite).await;
         let expected_responses = 1;
-        let expected_retrans = 5;
+        let expected_retrans = 3;
 
         ctx.server
             .send_final_status(CODE_301_MOVED_PERMANENTLY)
@@ -538,10 +556,10 @@ mod tests {
 
     #[tokio::test]
     async fn non_invite_transitions_to_trying_when_created_from_request() {
-        let mut ctx = ServerTestContext::setup(SipMethod::Options).await;
+        let ctx = ServerTestContext::setup(SipMethod::Options).await;
 
-        assert_eq_state!(
-            ctx.state,
+        assert_eq!(
+            ctx.server.state_machine.state(),
             State::Trying,
             "server non-INVITE must transition to the Trying state when constructed for a request"
         );
@@ -590,6 +608,12 @@ mod tests {
 
         assert_eq_state!(
             ctx.state,
+            State::Completed,
+            "server non-INVITE must transition to the Completed when sending 200-699 response"
+        );
+
+        assert_eq_state!(
+            ctx.state,
             State::Terminated,
             "server non-INVITE must transition to the Terminated state when sending 2xx response"
         );
@@ -603,6 +627,12 @@ mod tests {
             .send_final_status(CODE_504_SERVER_TIMEOUT)
             .await
             .expect("Error sending final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "server non-INVITE must transition to the Completed when sending 200-699 response"
+        );
 
         assert_eq_state!(
             ctx.state,

@@ -4,6 +4,26 @@ use core::{fmt, str};
 
 type Result<T> = std::result::Result<T, ScannerError>;
 
+#[must_use]
+pub fn is_space(b: u8) -> bool {
+    matches!(b, b' ' | b'\t')
+}
+
+#[must_use]
+pub fn is_newline(b: u8) -> bool {
+    matches!(b, b'\r' | b'\n')
+}
+
+#[must_use]
+pub fn is_alphabetic(b: u8) -> bool {
+    b.is_ascii_alphabetic()
+}
+
+#[must_use]
+pub fn is_digit(b: u8) -> bool {
+    b.is_ascii_digit()
+}
+
 /// A text scanner for sequentially reading bytes from an input slice.
 ///
 /// The `Scanner` provides methods to iterate over the input while
@@ -273,7 +293,7 @@ impl<'buf> Scanner<'buf> {
     }
 
     pub fn scan_newline(&mut self) -> Result<()> {
-        let newline = self.scan_while(crate::byte::is_newline);
+        let newline = self.scan_while(is_newline);
         if newline.is_empty() {
             return Err(self.scan_error(ScannerErrorKind::NonNewLine));
         }
@@ -282,7 +302,7 @@ impl<'buf> Scanner<'buf> {
 
     /// Scan until a new line (`\r` or `\n`) is found.
     pub fn scan_line(&mut self) -> Result<&'buf str> {
-        self.scan_while_as_str(|b| !crate::byte::is_newline(b))
+        self.scan_while_as_str(|b| !is_newline(b))
     }
 
     pub(crate) fn scan_error(&self, kind: ScannerErrorKind) -> ScannerError {

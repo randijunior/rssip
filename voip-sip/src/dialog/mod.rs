@@ -116,7 +116,7 @@ impl Dialog {
                     && !matches!(request.req_line.method, SipMethod::Ack | SipMethod::Cancel)
                 {
                     let st_text = ReasonPhrase::from("Invalid Cseq");
-                    let mut response = self.endpoint.create_response(
+                    let mut response = self.endpoint.create_outgoing_response(
                         &request,
                         StatusCode::ServerInternalError,
                         Some(st_text),

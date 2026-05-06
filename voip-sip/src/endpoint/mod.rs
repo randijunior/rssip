@@ -75,14 +75,12 @@ impl Endpoint {
             .unwrap()
     }
 
-    /// Creates a new SIP response based on an incoming
-    /// request.
-    pub fn create_response(
+    pub(crate) fn create_response(
         &self,
         request: &IncomingRequest,
         code: StatusCode,
         reason: Option<ReasonPhrase>,
-    ) -> OutgoingResponse {
+    ) -> Response {
         let all_hdrs = &request.request.headers;
         let mandatory_headers = &request.incoming_info.mandatory_headers;
 
@@ -130,10 +128,27 @@ impl Endpoint {
         };
         let status_line = StatusLine { code, reason };
 
-        // Done.
+        Response {
+            status_line,
+            headers,
+            body: None,
+        }
+    }
+
+    /// Creates a new SIP response based on an incoming
+    /// request.
+    pub fn create_outgoing_response(
+        &self,
+        request: &IncomingRequest,
+        code: StatusCode,
+        reason: Option<ReasonPhrase>,
+    ) -> OutgoingResponse {
+        let response = self.create_response(request, code, reason);
+        let dest_info = self.get_response_destination(request);
+
         OutgoingResponse {
-            response: Response::with_headers(status_line, headers),
-            dest_info: self.get_response_destination(request),
+            response,
+            dest_info,
             encoded: Bytes::new(),
         }
     }

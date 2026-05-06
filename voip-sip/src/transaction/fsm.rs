@@ -1,5 +1,3 @@
-use tokio::sync::watch;
-
 /// Defines the possible states of a SIP Transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum State {
@@ -31,9 +29,11 @@ impl std::fmt::Display for State {
     }
 }
 
+use tokio::sync::broadcast;
+
 pub struct StateMachine {
     state: State,
-    state_change_notifier: Option<watch::Sender<State>>,
+    state_change_notifier: Option<broadcast::Sender<State>>,
 }
 
 impl StateMachine {
@@ -45,22 +45,24 @@ impl StateMachine {
     }
     /// Subscribe to transaction state changes
     ///
-    /// Returns a watch::Receiver that can be used to monitor state changes
-    pub fn subscribe_state(&mut self) -> watch::Receiver<State> {
-        match self.state_change_notifier {
+    /// Returns a broadcast::Receiver that can be used to monitor state changes
+    pub fn subscribe_state(&mut self) -> TsxStateChangeReceiver {
+        let recv = match self.state_change_notifier {
             Some(ref state) => state.subscribe(),
             None => {
-                let (sender, recv) = watch::channel(self.state);
+                let (sender, recv) = broadcast::channel(6);
 
                 self.state_change_notifier = Some(sender);
 
                 recv
             }
-        }
+        };
+
+        TsxStateChangeReceiver(recv)
     }
 
     #[must_use]
-    fn borrow_state_notifier(&self) -> Option<&watch::Sender<State>> {
+    fn borrow_state_notifier(&self) -> Option<&broadcast::Sender<State>> {
         self.state_change_notifier.as_ref()
     }
 
@@ -78,5 +80,13 @@ impl StateMachine {
         self.state = state;
 
         self.notify_state_change(state);
+    }
+}
+
+pub struct TsxStateChangeReceiver(broadcast::Receiver<State>);
+
+impl TsxStateChangeReceiver {
+    pub async fn recv(&mut self) -> crate::Result<State> {
+        self.0.recv().await.map_err(|_| crate::Error::ChannelClosed)
     }
 }

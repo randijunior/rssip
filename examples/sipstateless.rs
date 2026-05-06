@@ -18,7 +18,8 @@ impl endpoint::Plugin for SipStateless {
         let request = received.take();
 
         if request.req_line.method != SipMethod::Ack {
-            let mut response = endpoint.create_response(&request, StatusCode::NotImplemented, None);
+            let mut response =
+                endpoint.create_outgoing_response(&request, StatusCode::NotImplemented, None);
 
             endpoint
                 .send_outgoing_response(&mut response)

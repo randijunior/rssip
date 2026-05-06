@@ -1,5 +1,5 @@
 [workspace]
-members = ["voip-sip", "utils", "examples", "voip-sdp", "voip"]
+members = ["voip-sip", "voip-utils", "examples", "voip-sdp", "voip"]
 
 resolver = "2"
 
@@ -13,7 +13,7 @@ edition = "2024"
 [workspace.dependencies]
 sip = { path = "voip-sip", package = "voip-sip"}
 sdp = { path = "voip-sdp", package = "voip-sdp" }
-utils = { path = "utils", package = "utils" }
+utils = { path = "voip-utils", package = "voip-utils" }
 tokio = { version = "1.41.1", features = [
     "net",
     "rt-multi-thread",

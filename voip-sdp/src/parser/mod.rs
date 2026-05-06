@@ -1,4 +1,4 @@
-use utils::byte::{is_newline, is_space};
+use utils::scanner::{is_newline, is_space};
 use utils::{LookupTable, Scanner, lookup_table};
 
 use crate::error::{ParseSdpError, Result};

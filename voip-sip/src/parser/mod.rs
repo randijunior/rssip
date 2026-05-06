@@ -2,9 +2,9 @@
 
 use std::str::{self, FromStr};
 
-use utils::lookup::LookupTable;
+use utils::lookup_table::LookupTable;
 use utils::scanner::Scanner;
-use utils::{byte, lookup_table};
+use utils::{lookup_table, scanner};
 
 use crate::error::{Error, ParseError, ParseErrorKind as Kind, Result};
 use crate::message::headers::{self as header, Header};
@@ -65,7 +65,7 @@ pub trait HeaderParse {
 }
 
 impl<'buf> SipParser<'buf> {
-    /// Creates a new `SipParser` from the given byte slice.
+    /// Creates a new `SipParser` from the given scanner slice.
     #[inline]
     pub fn new<B>(buf: &'buf B) -> Self
     where
@@ -505,7 +505,7 @@ impl<'buf> SipParser<'buf> {
 
     fn parse_status_code(&mut self) -> Result<status_code::StatusCode> {
         self.skip_ws();
-        let digits = self.scanner.scan_while(byte::is_digit);
+        let digits = self.scanner.scan_while(scanner::is_digit);
         self.skip_ws();
 
         let code = digits
@@ -612,7 +612,7 @@ impl<'buf> SipParser<'buf> {
         self.scanner
             .remaining()
             .iter()
-            .take_while(|&&b| !byte::is_space(b) && !byte::is_newline(b) && b != b'>')
+            .take_while(|&&b| !scanner::is_space(b) && !scanner::is_newline(b) && b != b'>')
             .any(|&b| b == b'@')
     }
 
@@ -750,8 +750,8 @@ impl<'buf> SipParser<'buf> {
     }
 
     #[inline]
-    pub fn must_read(&mut self, byte: u8) -> Result<()> {
-        Ok(self.scanner.must_read(byte).map_err(ParseError::from)?)
+    pub fn must_read(&mut self, scanner: u8) -> Result<()> {
+        Ok(self.scanner.must_read(scanner).map_err(ParseError::from)?)
     }
 
     #[inline]
@@ -761,17 +761,17 @@ impl<'buf> SipParser<'buf> {
 
     #[inline]
     pub fn skip_ws(&mut self) {
-        let _ = self.scanner.scan_while(byte::is_space);
+        let _ = self.scanner.scan_while(scanner::is_space);
     }
 
     #[inline]
     pub fn skip_newline(&mut self) {
-        let _ = self.scanner.scan_while(byte::is_newline);
+        let _ = self.scanner.scan_while(scanner::is_newline);
     }
 
     #[inline]
     pub fn take_alphabetic(&mut self) -> &'buf [u8] {
-        self.scanner.scan_while(byte::is_alphabetic)
+        self.scanner.scan_while(scanner::is_alphabetic)
     }
 
     #[inline]
@@ -786,7 +786,7 @@ impl<'buf> SipParser<'buf> {
 
     #[inline]
     pub fn is_next_newline(&self) -> bool {
-        self.scanner.peek_if(byte::is_newline).is_some()
+        self.scanner.peek_if(scanner::is_newline).is_some()
     }
 
     #[inline]

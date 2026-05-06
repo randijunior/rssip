@@ -1,13 +1,12 @@
 //! This lib provide several utilities for use in the `voip` project.
 
-pub mod byte;
 pub mod local_ip;
-pub mod lookup;
+pub mod lookup_table;
 pub mod one;
-mod peek_recv;
+mod peekable_receiver;
 pub mod scanner;
 
-pub use lookup::*;
+pub use lookup_table::*;
 pub use one::*;
-pub use peek_recv::*;
+pub use peekable_receiver::*;
 pub use scanner::*;

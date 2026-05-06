@@ -120,7 +120,7 @@ pub mod transaction {
     use std::net::SocketAddr;
     use std::time::Duration;
 
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::mpsc;
     use tokio::task;
     use tokio::time::{self};
 
@@ -144,21 +144,23 @@ pub mod transaction {
     pub const CODE_504_SERVER_TIMEOUT: StatusCode = StatusCode::ServerTimeout;
     pub const CODE_603_DECLINE: StatusCode = StatusCode::Decline;
 
-    /// Asserts that the last state received in the [`watch::Receiver<State>`] are equal to the expected.
+    /// Asserts that the last state received in the [`broadcast::Receiver<State>`] are equal to the expected.
     #[macro_export]
     macro_rules! assert_eq_state {
         ($watcher:expr, $state:expr $(,)?) => {
             $crate::assert_eq_state!($watcher, $state,)
         };
         ($watcher:expr, $state:expr, $($arg:tt)+) => {{
-            $crate::test_utils::transaction::wait_state_change(&mut $watcher).await;
-            assert_eq!(*$watcher.borrow(), $state, $($arg)+);
+            let new_state = $crate::test_utils::transaction::wait_state_change(&mut $watcher).await;
+            assert_eq!(new_state, $state, $($arg)+);
         }};
     }
 
-    pub async fn wait_state_change(state: &mut watch::Receiver<fsm::State>) {
-        if let Ok(Err(_err)) = time::timeout(Duration::from_millis(50), state.changed()).await {
-            panic!("The channel has been closed")
+    pub async fn wait_state_change(state: &mut fsm::TsxStateChangeReceiver) -> fsm::State {
+        match time::timeout(Duration::from_millis(50), state.recv()).await {
+            Ok(Err(err)) => panic!("{}", format!("The channel has been closed: {err}")),
+            Err(_) => panic!("timeout!"),
+            Ok(Ok(state)) => state,
         }
     }
 
@@ -171,7 +173,9 @@ pub mod transaction {
     impl FakeUAS {
         pub async fn respond(&self, code: StatusCode) {
             let mandatory_headers = self.request.incoming_info.mandatory_headers.clone();
-            let outgoing = self.endpoint.create_response(&self.request, code, None);
+            let outgoing = self
+                .endpoint
+                .create_outgoing_response(&self.request, code, None);
 
             let packet = Packet::new(
                 outgoing.encoded,
@@ -308,7 +312,7 @@ pub mod transaction {
         pub server: FakeUAS,
         pub transport: MockTransport,
         pub timer: TestTimer,
-        pub state: watch::Receiver<fsm::State>,
+        pub state: fsm::TsxStateChangeReceiver,
     }
 
     impl ClientTestContext {
@@ -379,7 +383,7 @@ pub mod transaction {
         pub client: FakeUAC,
         pub transport: MockTransport,
         pub timer: TestTimer,
-        pub state: watch::Receiver<fsm::State>,
+        pub state: fsm::TsxStateChangeReceiver,
     }
 
     impl ServerTestContext {
