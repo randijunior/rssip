@@ -29,6 +29,7 @@ use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
 };
 use crate::transport::{Transport, TransportLayer};
+use crate::ua::UaPlugin;
 
 struct EndpointInner {
     /// The transport layer for the endpoint.
@@ -514,12 +515,12 @@ impl Endpoint {
         &self.inner.transport
     }
 
-    pub(crate) fn transactions(&self) -> &TsxPlugin {
+    pub(crate) fn tsx_plugin(&self) -> &TsxPlugin {
         self.plugin::<TsxPlugin>()
     }
 
-    pub(crate) fn dialogs(&self) -> &crate::dialog::Ua {
-        self.plugin::<crate::dialog::Ua>()
+    pub(crate) fn ua_plugin(&self) -> &UaPlugin {
+        self.plugin::<UaPlugin>()
     }
 
     fn from_inner(inner: Arc<EndpointInner>) -> Self {

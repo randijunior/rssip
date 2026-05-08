@@ -356,7 +356,7 @@ pub mod transaction {
             );
 
             let sender = endpoint
-                .transactions()
+                .tsx_plugin()
                 .get_entry(client.transaction_key())
                 .unwrap();
 
@@ -404,7 +404,7 @@ pub mod transaction {
             let mut server = ServerTransaction::from_request(request.clone(), endpoint.clone());
 
             let sender = endpoint
-                .transactions()
+                .tsx_plugin()
                 .get_entry(server.transaction_key())
                 .unwrap();
 

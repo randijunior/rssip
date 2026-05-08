@@ -91,7 +91,7 @@ impl ClientTransaction {
         };
         let (sender, channel) = mpsc::channel(10);
 
-        endpoint.transactions().add_transaction(key.clone(), sender);
+        endpoint.tsx_plugin().add_transaction(key.clone(), sender);
 
         let client_tsx = Self {
             key,
@@ -102,7 +102,7 @@ impl ClientTransaction {
             timeout: Instant::now() + T1 * 64,
         };
 
-        log::trace!("Transaction Created [{:#?}] ({:p})", Role::UAC, &client_tsx);
+        log::trace!("Client Transaction Created [{:#?}] ({:p})", method, &client_tsx);
 
         Ok(client_tsx)
     }
@@ -267,7 +267,7 @@ impl ClientTransaction {
 
 impl Drop for ClientTransaction {
     fn drop(&mut self) {
-        self.endpoint.transactions().remove_transaction(&self.key);
+        self.endpoint.tsx_plugin().remove_transaction(&self.key);
         log::trace!("Transaction Destroyed [{:#?}] ({:p})", Role::UAC, &self);
     }
 }
@@ -1167,7 +1167,7 @@ mod tests {
             .receive_final_response()
             .await
             .expect("Error receiving final response");
-        
+
         assert_eq_state!(
             ctx.state,
             State::Completed,

@@ -1,9 +1,10 @@
+#![warn(clippy::undocumented_unsafe_blocks)]
+
 //! # voip-sip
 //!
 //! A rust library that implements the SIP protocol.
 //!
 
-pub mod dialog;
 pub mod endpoint;
 pub(crate) mod error;
 pub mod macros;
@@ -12,6 +13,7 @@ pub(crate) mod parser;
 pub mod resolver;
 pub mod transaction;
 pub(crate) mod transport;
+pub mod ua;
 
 pub use endpoint::Endpoint;
 pub use error::Result;

@@ -35,13 +35,14 @@ impl ServerTransaction {
     ///
     /// Panics if request method is `ACK`.
     pub(crate) fn from_request(request: IncomingRequest, endpoint: Endpoint) -> Self {
+        let method = request.req_line.method;
         assert_ne!(
-            request.req_line.method,
+            method,
             SipMethod::Ack,
             "ACK requests do not create transactions"
         );
 
-        let initial_state = if request.req_line.method == SipMethod::Invite {
+        let initial_state = if method == SipMethod::Invite {
             State::Proceeding
         } else {
             State::Trying
@@ -52,10 +53,10 @@ impl ServerTransaction {
         let transaction_key = TransactionKey::from_request(&request);
 
         endpoint
-            .transactions()
+            .tsx_plugin()
             .add_transaction(transaction_key.clone(), sender);
 
-        Self {
+        let server_tsx = Self {
             endpoint,
             transaction_key,
             request,
@@ -63,7 +64,11 @@ impl ServerTransaction {
             receiver: Some(receiver),
             target_info: None,
             provisonal_retrans_handle: None,
-        }
+        };
+
+        log::trace!("Server transaction created [{:#?}] ({:p})", method, &server_tsx);
+
+        server_tsx
     }
 
     /// Sends a provisional response with the given `status`.
@@ -323,7 +328,7 @@ struct ProvisionalRetransHandle {
 impl Drop for ServerTransaction {
     fn drop(&mut self) {
         self.endpoint
-            .transactions()
+            .tsx_plugin()
             .remove_transaction(&self.transaction_key);
     }
 }

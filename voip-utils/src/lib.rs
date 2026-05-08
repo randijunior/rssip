@@ -1,3 +1,5 @@
+#![warn(clippy::undocumented_unsafe_blocks)]
+
 //! This lib provide several utilities for use in the `voip` project.
 
 pub mod local_ip;
