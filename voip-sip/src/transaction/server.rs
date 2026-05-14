@@ -7,9 +7,10 @@ use crate::error::{Error, Result};
 use crate::message::ReasonPhrase;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
+use crate::transaction::TransactionMessage;
 use crate::transaction::fsm::{State, StateMachine};
 use crate::transaction::manager::TransactionKey;
-use crate::transaction::{T1, T2, T4, TransactionMessage};
+use crate::transaction::timers::{T1, T2, T4};
 use crate::transport::incoming::IncomingRequest;
 use crate::transport::outgoing::{OutgoingDestInfo, OutgoingResponse, TargetTransportInfo};
 
@@ -66,7 +67,11 @@ impl ServerTransaction {
             provisonal_retrans_handle: None,
         };
 
-        log::trace!("Server transaction created [{:#?}] ({:p})", method, &server_tsx);
+        log::trace!(
+            "Server transaction created [{:#?}] ({:p})",
+            method,
+            &server_tsx
+        );
 
         server_tsx
     }

@@ -55,7 +55,7 @@ impl endpoint::Plugin for UaPlugin {
             return;
         }
         let request = request.take();
-        
+
         let Some(sender) = self.get_dialog_from_request(&request) else {
             if request.req_line.method != SipMethod::Ack {
                 let mut response = endpoint.create_outgoing_response(

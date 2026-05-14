@@ -11,7 +11,8 @@ use crate::message::headers::{Header, Via};
 use crate::message::method::SipMethod;
 use crate::transaction::fsm::{State, StateMachine};
 use crate::transaction::manager::TransactionKey;
-use crate::transaction::{Role, T1, T4, TransactionMessage};
+use crate::transaction::timers::{T1, T4};
+use crate::transaction::{Role, TransactionMessage};
 use crate::transport::Transport;
 use crate::transport::incoming::IncomingResponse;
 use crate::transport::outgoing::OutgoingRequest;
@@ -102,7 +103,11 @@ impl ClientTransaction {
             timeout: Instant::now() + T1 * 64,
         };
 
-        log::trace!("Client Transaction Created [{:#?}] ({:p})", method, &client_tsx);
+        log::trace!(
+            "Client Transaction Created [{:#?}] ({:p})",
+            method,
+            &client_tsx
+        );
 
         Ok(client_tsx)
     }

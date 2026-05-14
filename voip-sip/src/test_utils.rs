@@ -132,7 +132,8 @@ pub mod transaction {
     use crate::message::status_code::StatusCode;
     use crate::transaction::client::ClientTransaction;
     use crate::transaction::fsm::{self};
-    use crate::transaction::{ServerTransaction, T1, T2, T4, TransactionMessage};
+    use crate::transaction::timers::{T1, T2, T4};
+    use crate::transaction::{ServerTransaction, TransactionMessage};
     use crate::transport::incoming::{IncomingInfo, IncomingRequest, IncomingResponse};
     use crate::transport::{Packet, Transport, TransportMessage};
 
