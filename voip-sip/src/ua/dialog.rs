@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
@@ -11,6 +11,23 @@ use crate::transaction::{Role, ServerTransaction};
 use crate::transport::incoming::IncomingRequest;
 use crate::{Endpoint, OutgoingResponse, find_map_mut_header};
 
+
+enum DialogState {
+    Initial,
+    Early,
+    Confirmed,
+}
+
+impl fmt::Display for DialogState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Initial => f.write_str("INITIAL"),
+            Self::Early => f.write_str("EARLY"),
+            Self::Confirmed => f.write_str("CONFIRMED"),
+        }
+    }
+}
+
 /// Represents a SIP Dialog.
 #[derive(Clone)]
 pub struct Dialog {
@@ -20,8 +37,8 @@ pub struct Dialog {
 struct Inner {
     dialog_id: DialogId,
     state: Mutex<DialogState>,
-    remote_cseq: Option<AtomicU32>,
-    local_cseq: Option<AtomicU32>,
+    remote_cseq: AtomicU32,
+    local_cseq: AtomicU32,
     from: From,
     to: To,
     contact: Contact,
@@ -48,8 +65,8 @@ impl Dialog {
         };
         let inner = Arc::new(Inner {
             dialog_id: dialog_id.clone(),
-            remote_cseq: Some(AtomicU32::new(mandatory_headers.cseq.cseq())),
-            local_cseq: None,
+            remote_cseq: AtomicU32::new(mandatory_headers.cseq.cseq()),
+            local_cseq: AtomicU32::new(0),
             from: mandatory_headers.from.clone(),
             to: mandatory_headers.to.clone(),
             secure: request.incoming_info.transport_msg.transport.is_secure()
@@ -126,23 +143,12 @@ impl Dialog {
         let mut state = self.inner.state.lock().expect("poisoned");
         *state = dialog_state;
     }
-}
 
-enum DialogState {
-    Initial,
-    Early,
-    Confirmed,
-}
-
-impl fmt::Display for DialogState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DialogState::Initial => f.write_str("INITIAL"),
-            DialogState::Early => f.write_str("EARLY"),
-            DialogState::Confirmed => f.write_str("CONFIRMED"),
-        }
+    pub(super) fn remote_cseq(&self) -> &AtomicU32 {
+        &self.inner.remote_cseq
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DialogId {
