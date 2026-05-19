@@ -257,7 +257,7 @@ impl ClientTransaction {
         &mut self.state_machine
     }
 
-    pub fn transaction_key(&self) -> &TransactionKey {
+    pub fn key(&self) -> &TransactionKey {
         &self.key
     }
 

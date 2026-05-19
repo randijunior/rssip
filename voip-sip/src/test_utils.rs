@@ -12,10 +12,12 @@ use crate::message::sip_uri::Uri;
 use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
 use crate::transport::{Packet, Transport, TransportMessage};
+use crate::ua::UaPlugin;
 
 pub async fn create_test_endpoint() -> Endpoint {
     EndpointBuilder::new()
         .with_udp_addr("127.0.0.1:0")
+        .with_plugin(UaPlugin::default())
         .with_plugin(TsxPlugin::default())
         .build()
         .await
@@ -55,10 +57,10 @@ pub fn create_test_request(method: SipMethod, transport: Transport) -> IncomingR
     let request = Request::with_headers(method, uri, headers);
     let packet = Packet::new(Bytes::new(), transport.local_addr());
 
-    let transport_info = TransportMessage { packet, transport };
+    let transport_msg = TransportMessage { packet, transport };
 
     let incoming_info = IncomingInfo {
-        transport_info,
+        transport_msg,
         mandatory_headers,
     };
 
@@ -180,15 +182,15 @@ pub mod transaction {
 
             let packet = Packet::new(
                 outgoing.encoded,
-                self.request.incoming_info.transport_info.packet.source,
+                self.request.incoming_info.transport_msg.packet.source,
             );
 
-            let transport_info = TransportMessage {
+            let transport_msg = TransportMessage {
                 packet,
-                transport: self.request.incoming_info.transport_info.transport.clone(),
+                transport: self.request.incoming_info.transport_msg.transport.clone(),
             };
             let info = IncomingInfo {
-                transport_info,
+                transport_msg,
                 mandatory_headers,
             };
 
@@ -296,7 +298,7 @@ pub mod transaction {
             let endpoint = create_test_endpoint().await;
             let incoming = create_test_request(method, transport.clone());
 
-            let destination = incoming.incoming_info.transport_info.packet.source;
+            let destination = incoming.incoming_info.transport_msg.packet.source;
             let request = incoming.request;
 
             Self {
@@ -332,7 +334,7 @@ pub mod transaction {
             let endpoint = create_test_endpoint().await;
             let request = create_test_request(method, transport_impl.clone());
 
-            let destination = request.incoming_info.transport_info.packet.source;
+            let destination = request.incoming_info.transport_msg.packet.source;
 
             let target = (transport_impl, destination);
 
@@ -356,10 +358,7 @@ pub mod transaction {
                 "Transaction state should transition to {expected_state} after sending request"
             );
 
-            let sender = endpoint
-                .tsx_plugin()
-                .get_entry(client.transaction_key())
-                .unwrap();
+            let sender = endpoint.tsx_plugin().get_entry(client.key()).unwrap();
 
             let server = FakeUAS {
                 sender,
@@ -404,10 +403,7 @@ pub mod transaction {
 
             let mut server = ServerTransaction::from_request(request.clone(), endpoint.clone());
 
-            let sender = endpoint
-                .tsx_plugin()
-                .get_entry(server.transaction_key())
-                .unwrap();
+            let sender = endpoint.tsx_plugin().get_entry(server.key()).unwrap();
 
             let client = FakeUAC { sender, request };
 

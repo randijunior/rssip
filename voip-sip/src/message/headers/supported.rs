@@ -22,6 +22,9 @@ impl HeaderParse for Supported {
 }
 
 impl Supported {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
     /// Add a new tag to the list of supported tags.
     pub fn add_tag(&mut self, tag: String) {
         self.0.push(tag);

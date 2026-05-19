@@ -25,6 +25,9 @@ impl HeaderParse for Allow {
 }
 
 impl Allow {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
     pub fn push(&mut self, method: SipMethod) {
         self.0.push(method);
     }

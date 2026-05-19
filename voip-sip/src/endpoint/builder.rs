@@ -111,12 +111,6 @@ impl EndpointBuilder {
             log::debug!("Plugin {} loaded", format_args!("({})", plugin.name()));
         }
 
-        let capabilities = crate::headers![
-            Header::Allow(self.allow),
-            Header::Supported(self.supported),
-            Header::Accept(self.accept)
-        ];
-
         let endpoint = {
             let endpoint = Arc::new_cyclic(|me: &std::sync::Weak<EndpointInner>| {
                 let handle = super::WeakEndpointHandle(me.clone());
@@ -125,7 +119,9 @@ impl EndpointBuilder {
                 EndpointInner {
                     transport,
                     name: self.name,
-                    capabilities,
+                    allow: self.allow,
+                    supported: self.supported,
+                    accept: self.accept,
                     plugins,
                 }
             });

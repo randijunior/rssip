@@ -15,14 +15,6 @@ pub struct IncomingRequest {
     pub incoming_info: Box<IncomingInfo>,
 }
 
-impl IncomingRequest {
-    pub fn as_str(&self) -> &str {
-        // SAFETY: An parsed IncomingRequest is aways a correctly
-        // encoded UTF-8 string.
-        unsafe { std::str::from_utf8_unchecked(&self.incoming_info.transport_info.packet.data) }
-    }
-}
-
 impl ops::Deref for IncomingRequest {
     type Target = Request;
     fn deref(&self) -> &Self::Target {
@@ -52,7 +44,7 @@ pub struct IncomingInfo {
     /// The mandatory headers extracted from the message.
     pub mandatory_headers: MandatoryHeaders,
     /// The received transport packet.
-    pub transport_info: super::TransportMessage,
+    pub transport_msg: super::TransportMessage,
 }
 
 /// Represents the mandatory headers that every SIP message must contain.

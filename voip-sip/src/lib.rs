@@ -55,10 +55,10 @@ pub(crate) fn generate_branch_n(n: usize) -> String {
 }
 
 pub(crate) fn generate_tag_n(n: usize) -> String {
-    generate_random_str(n)
+    random_str(n)
 }
 
-pub(crate) fn generate_random_str(n: usize) -> String {
+pub(crate) fn random_str(n: usize) -> String {
     Alphanumeric.sample_string(&mut rand::rng(), n)
 }
 

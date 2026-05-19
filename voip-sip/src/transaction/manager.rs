@@ -10,7 +10,7 @@ use crate::message::sip_uri::HostPort;
 use crate::transport::incoming::{IncomingInfo, IncomingRequest, IncomingResponse};
 use crate::{Endpoint, RFC3261_BRANCH_ID};
 
-type TransactionEntry = mpsc::Sender<TransactionMessage>;
+pub(crate) type TransactionEntry = mpsc::Sender<TransactionMessage>;
 
 #[derive(Default)]
 pub struct TsxPlugin {

@@ -254,9 +254,12 @@ impl ServerTransaction {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn transaction_key(&self) -> &TransactionKey {
+    pub(crate) fn key(&self) -> &TransactionKey {
         &self.transaction_key
+    }
+
+    pub(crate) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     fn set_state(&mut self, state: State) {
@@ -279,7 +282,7 @@ impl ServerTransaction {
     fn is_reliable(&self) -> bool {
         self.request
             .incoming_info
-            .transport_info
+            .transport_msg
             .transport
             .is_reliable()
     }

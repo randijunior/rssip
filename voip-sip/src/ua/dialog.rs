@@ -1,171 +1,146 @@
-use tokio::sync::mpsc;
+use std::fmt;
+use std::sync::atomic::AtomicU32;
+use std::sync::{Arc, Mutex};
 
-use crate::endpoint::Endpoint;
-use crate::error::{DialogError, Error, Result};
+use crate::error::Result;
 use crate::message::headers::{CallId, Contact, From, Header, Headers, To};
-use crate::message::method::SipMethod;
 use crate::message::param::Params;
 use crate::message::sip_uri::{Scheme, Uri};
-use crate::transaction::Role;
-use crate::transport::incoming::{IncomingRequest, IncomingResponse};
-use crate::{OutgoingRequest, find_map_header};
+use crate::message::status_code::StatusCode;
+use crate::transaction::{Role, ServerTransaction};
+use crate::transport::incoming::IncomingRequest;
+use crate::{Endpoint, OutgoingResponse, find_map_mut_header};
 
 /// Represents a SIP Dialog.
+#[derive(Clone)]
 pub struct Dialog {
-    id: DialogId,
-    state: DialogState,
-    remote_cseq: Option<u32>,
-    local_cseq: Option<u32>,
-    local: From,
-    remote: To,
-    target: Contact,
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    dialog_id: DialogId,
+    state: Mutex<DialogState>,
+    remote_cseq: Option<AtomicU32>,
+    local_cseq: Option<AtomicU32>,
+    from: From,
+    to: To,
+    contact: Contact,
     secure: bool,
     route_set: Vec<RouteSet>,
     role: Role,
-    endpoint: Endpoint,
-    receiver: mpsc::Receiver<DialogMessage>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum DialogState {
+impl Dialog {
+    pub(super) fn new_uas(
+        endpoint: &Endpoint,
+        request: &IncomingRequest,
+        contact: Contact,
+    ) -> Dialog {
+        let mandatory_headers = &request.incoming_info.mandatory_headers;
+        debug_assert!(
+            mandatory_headers.to.tag.is_none(),
+            "The To header tag is added only by the server (UAS) in the response."
+        );
+        let dialog_id = DialogId {
+            call_id: mandatory_headers.call_id.clone(),
+            remote_tag: mandatory_headers.from.tag().map(|t| t.to_owned()),
+            local_tag: crate::generate_tag_n(8),
+        };
+        let inner = Arc::new(Inner {
+            dialog_id: dialog_id.clone(),
+            remote_cseq: Some(AtomicU32::new(mandatory_headers.cseq.cseq())),
+            local_cseq: None,
+            from: mandatory_headers.from.clone(),
+            to: mandatory_headers.to.clone(),
+            secure: request.incoming_info.transport_msg.transport.is_secure()
+                && request.req_line.uri.scheme == Scheme::Sips,
+            route_set: RouteSet::from_headers(&request.headers),
+            state: Mutex::new(DialogState::Initial),
+            role: Role::UAS,
+            contact,
+        });
+
+        let dialog = Dialog { inner };
+
+        endpoint
+            .ua_plugin()
+            .register_dialog(dialog_id, dialog.clone());
+
+        dialog
+    }
+
+    pub(super) async fn respond_provisional(
+        &self,
+        server_tsx: &mut ServerTransaction,
+        status_code: StatusCode,
+    ) -> Result<()> {
+        let response = self.create_response(server_tsx, status_code);
+
+        server_tsx.send_provisional_response(response).await?;
+
+        self.set_state(DialogState::Early);
+
+        Ok(())
+    }
+
+    fn create_response(
+        &self,
+        server_tsx: &ServerTransaction,
+        status_code: StatusCode,
+    ) -> OutgoingResponse {
+        let mut response = server_tsx.create_response(status_code, None);
+        let headers = &mut response.headers;
+
+        let allow = server_tsx.endpoint().allow();
+        let supported = server_tsx.endpoint().supported();
+
+        let code = status_code.as_u16();
+
+        if matches!(code, 101..=399 | 485) && !headers.iter().any(|hdr| hdr.is_contact()) {
+            headers.push(Header::Contact(self.inner.contact.clone()));
+        }
+
+        if matches!(code,180..=189 | 200..=299 | 405)
+            && !allow.is_empty()
+            && !headers.iter().any(|hdr| hdr.is_allow())
+        {
+            headers.push(Header::Allow(allow.clone()));
+        }
+
+        if matches!(code, 200..=299)
+            && !supported.is_empty()
+            && !headers.iter().any(|hdr| hdr.is_supported())
+        {
+            headers.push(Header::Supported(supported.clone()));
+        }
+
+        if code != 100 {
+            let to = find_map_mut_header!(headers, To).expect("missing to header!");
+            to.tag = Some(self.inner.dialog_id.local_tag.clone());
+        }
+
+        response
+    }
+
+    fn set_state(&self, dialog_state: DialogState) {
+        let mut state = self.inner.state.lock().expect("poisoned");
+        *state = dialog_state;
+    }
+}
+
+enum DialogState {
+    Initial,
     Early,
     Confirmed,
 }
 
-impl Dialog {
-    pub fn create_uas(
-        request: &IncomingRequest,
-        contact: Contact,
-        endpoint: Endpoint,
-        state: DialogState,
-    ) -> Result<Self> {
-        if !matches!(request.req_line.method, SipMethod::Invite) {
-            return Err(DialogError::InvalidMethod.into());
+impl fmt::Display for DialogState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DialogState::Initial => f.write_str("INITIAL"),
+            DialogState::Early => f.write_str("EARLY"),
+            DialogState::Confirmed => f.write_str("CONFIRMED"),
         }
-        let mandatory_headers = &request.incoming_info.mandatory_headers;
-
-        if mandatory_headers.to.tag().is_some() {
-            return Err(DialogError::ToCannotHaveTag.into());
-        };
-
-        let to = mandatory_headers.to.clone();
-        let from = mandatory_headers.from.clone();
-
-        let remote_cseq = Some(mandatory_headers.cseq.cseq());
-        let local_cseq = None;
-
-        let route_set = RouteSet::from_headers(&request.headers);
-        let secure = request.incoming_info.transport_info.transport.is_secure()
-            && request.req_line.uri.scheme == Scheme::Sips;
-
-        let id = DialogId {
-            call_id: mandatory_headers.call_id.clone(),
-            remote_tag: from.tag().map(|t| t.to_owned()),
-            local_tag: crate::generate_tag_n(8),
-        };
-
-        let (sender, receiver) = mpsc::channel(10);
-
-        endpoint.ua_plugin().register_dialog(id.clone(), sender);
-
-        let dialog = Self {
-            endpoint,
-            id,
-            state,
-            remote_cseq,
-            local_cseq,
-            local: from,
-            remote: to,
-            target: contact,
-            secure,
-            route_set,
-            receiver,
-            role: Role::UAS,
-        };
-
-        log::trace!("UAS dialog created");
-
-        Ok(dialog)
-    }
-
-    pub fn create_uac(
-        request: &OutgoingRequest,
-        response: &IncomingResponse,
-        endpoint: Endpoint,
-    ) -> Result<Self> {
-        let Some(contact) = find_map_header!(response.headers, Contact).cloned() else {
-            return Err(Error::Other("Missing Contact header!".to_owned()));
-        };
-        let Some(cseq) = find_map_header!(request.headers, CSeq) else {
-            return Err(Error::Other("Missing CSeq header!".to_owned()));
-        };
-        let Some(call_id) = find_map_header!(request.headers, CallId).cloned() else {
-            return Err(Error::Other("Missing Call-ID header!".to_owned()));
-        };
-
-        let Some(from) = find_map_header!(request.headers, From).cloned() else {
-            return Err(Error::Other("Missing From header!".to_owned()));
-        };
-
-        let Some(to) = find_map_header!(request.headers, To).cloned() else {
-            return Err(Error::Other("Missing To header!".to_owned()));
-        };
-
-        let Some(local_tag) = from.tag.clone() else {
-            return Err(Error::Other("Missing From tag!".to_owned()));
-        };
-
-        let Some(remote_tag) = response.incoming_info.mandatory_headers.to.tag.clone() else {
-            return Err(Error::Other("Missing To tag!".to_owned()));
-        };
-
-        let local_cseq = Some(cseq.cseq());
-        let remote_cseq: Option<u32> = None;
-
-        let id = DialogId {
-            call_id,
-            remote_tag: Some(remote_tag),
-            local_tag,
-        };
-
-        let secure = request.target_info.transport.is_secure()
-            && request.request.req_line.uri.scheme == Scheme::Sips;
-        let route_set = RouteSet::from_headers(&response.headers);
-
-        let state = if response.status_line.code.as_u16() < 200 {
-            DialogState::Early
-        } else {
-            DialogState::Confirmed
-        };
-
-        let (sender, receiver) = mpsc::channel(10);
-
-        endpoint.ua_plugin().register_dialog(id.clone(), sender);
-
-        let dialog = Self {
-            endpoint,
-            id,
-            state,
-            remote_cseq,
-            local_cseq,
-            local: from,
-            remote: to,
-            target: contact,
-            secure,
-            route_set,
-            receiver,
-            role: Role::UAC,
-        };
-
-        log::trace!("UAC dialog created");
-
-        Ok(dialog)
-    }
-}
-
-impl Drop for Dialog {
-    fn drop(&mut self) {
-        self.endpoint.ua_plugin().remove_dialog(&self.id);
     }
 }
 
@@ -177,7 +152,7 @@ pub struct DialogId {
 }
 
 impl DialogId {
-    pub fn from_request(request: &IncomingRequest) -> Option<Self> {
+    pub fn from_incoming_request(request: &IncomingRequest) -> Option<Self> {
         let headers = &request.incoming_info.mandatory_headers;
         let call_id = headers.call_id.clone();
 
@@ -196,11 +171,7 @@ impl DialogId {
     }
 }
 
-pub enum DialogMessage {
-    Request(IncomingRequest),
-    Response(IncomingResponse),
-}
-
+#[derive(Default)]
 pub struct RouteSet {
     uri: Uri,
     params: Params,

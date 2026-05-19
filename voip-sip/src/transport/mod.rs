@@ -251,7 +251,7 @@ impl TransportLayer {
 
         let info = IncomingInfo {
             mandatory_headers,
-            transport_info: message,
+            transport_msg: message,
         };
 
         let incoming_info = Box::new(info);

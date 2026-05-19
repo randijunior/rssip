@@ -16,7 +16,7 @@ pub use plugin::{Plugin, ReceivedRequest, ReceivedResponse};
 use crate::Result;
 use crate::endpoint::plugin::Plugins;
 use crate::error::Error;
-use crate::message::headers::{CSeq, Header, Headers, Route};
+use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
 use crate::message::method::SipMethod;
 use crate::message::sip_uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::status_code::StatusCode;
@@ -37,7 +37,9 @@ struct EndpointInner {
     /// The name of the endpoint.
     name: String,
     /// The capability header list.
-    capabilities: Headers,
+    allow: Allow,
+    accept: Accept,
+    supported: Supported,
     /// The list of plugins registered.
     plugins: Plugins,
 }
@@ -74,6 +76,18 @@ impl Endpoint {
             .find_plugin()
             .ok_or_else(|| format!("endpoint missing plugin {}", type_name::<M>()))
             .unwrap()
+    }
+
+    pub(crate) fn supported(&self) -> &Supported {
+        &self.inner.supported
+    }
+
+    pub(crate) fn accept(&self) -> &Accept {
+        &self.inner.accept
+    }
+
+    pub(crate) fn allow(&self) -> &Allow {
+        &self.inner.allow
     }
 
     pub(crate) fn create_response(
@@ -298,10 +312,10 @@ impl Endpoint {
         let incoming_info = &request.incoming_info;
         let topmost_via = &incoming_info.mandatory_headers.via;
         let via_sent_by = &topmost_via.sent_by;
-        let source_transport = &incoming_info.transport_info.transport;
+        let source_transport = &incoming_info.transport_msg.transport;
 
         if topmost_via.transport.is_reliable() {
-            let source_addr = incoming_info.transport_info.packet.source;
+            let source_addr = incoming_info.transport_msg.packet.source;
 
             let host = if let Some(ip_addr) = topmost_via.received {
                 let port = via_sent_by
@@ -457,7 +471,7 @@ impl Endpoint {
             "<= Response {} {} from /{}",
             response.status_line.code.as_u16(),
             response.status_line.reason.as_str(),
-            response.incoming_info.transport_info.packet.source
+            response.incoming_info.transport_msg.packet.source
         );
 
         let mut response = Some(response);
@@ -477,7 +491,7 @@ impl Endpoint {
                 "Response ({} {}) from /{} was unhandled by any plugin",
                 response.status_line.code.as_u16(),
                 response.status_line.reason.as_str(),
-                response.incoming_info.transport_info.packet.source
+                response.incoming_info.transport_msg.packet.source
             );
         }
     }
@@ -486,7 +500,7 @@ impl Endpoint {
         log::debug!(
             "<= Request {} from /{}",
             request.req_line.method,
-            request.incoming_info.transport_info.packet.source
+            request.incoming_info.transport_msg.packet.source
         );
 
         let mut request = Some(request);
@@ -506,7 +520,7 @@ impl Endpoint {
                 "Request ({}, cseq={}) from /{} was unhandled",
                 msg.request.req_line.method,
                 msg.incoming_info.mandatory_headers.cseq.cseq(),
-                msg.incoming_info.transport_info.packet.source
+                msg.incoming_info.transport_msg.packet.source
             );
         }
     }

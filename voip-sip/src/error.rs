@@ -29,9 +29,6 @@ pub enum Error {
     #[error("Transaction Error: {0}")]
     TransactionError(#[from] TransactionError),
 
-    #[error(transparent)]
-    DialogError(#[from] DialogError),
-
     #[error("Missing required '{0}' header")]
     MissingHeader(&'static str),
 
@@ -108,15 +105,6 @@ pub enum ParseErrorKind {
     Transport,
     #[error("ScannerError: {:#?}", .0)]
     Scanner(ScannerErrorKind),
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum DialogError {
-    #[error("Method cannot establish a dialog")]
-    InvalidMethod,
-
-    #[error("'To' header must not have To tag")]
-    ToCannotHaveTag,
 }
 
 #[derive(Debug, Error, PartialEq)]

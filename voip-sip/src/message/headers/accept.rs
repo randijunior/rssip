@@ -21,6 +21,9 @@ impl HeaderParse for Accept {
 }
 
 impl Accept {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
     #[inline]
     pub fn push(&mut self, mtype: MediaType) {
         self.0.push(mtype);

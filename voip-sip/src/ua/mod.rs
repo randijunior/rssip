@@ -1,46 +1,38 @@
 pub mod dialog;
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
-use dialog::{DialogId, DialogMessage};
-use tokio::sync::mpsc;
+use dialog::DialogId;
+use rustc_hash::FxHashMap;
 
+use self::dialog::Dialog;
 use crate::Endpoint;
 use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
-use crate::transport::incoming::IncomingRequest;
-
-type Dialogs = HashMap<DialogId, mpsc::Sender<DialogMessage>>;
 
 #[derive(Default)]
 pub struct UaPlugin {
-    dialogs: Mutex<Dialogs>,
+    dialogs: RwLock<FxHashMap<DialogId, Dialog>>,
 }
 
 impl UaPlugin {
-    pub(crate) fn register_dialog(&self, dialog_id: DialogId, dialog: mpsc::Sender<DialogMessage>) {
-        let mut dialogs = self.dialogs.lock().expect("Lock failed");
+    pub(crate) fn register_dialog(&self, dialog_id: DialogId, dialog: Dialog) {
+        let mut dialogs = self.dialogs.write().expect("Lock failed");
 
         dialogs.insert(dialog_id, dialog);
     }
 
     pub(crate) fn remove_dialog(&self, dialog_id: &DialogId) {
-        let mut dialogs = self.dialogs.lock().expect("Lock failed");
+        let mut dialogs = self.dialogs.write().expect("Lock failed");
 
         dialogs.remove(dialog_id);
     }
 
-    pub(crate) fn get_dialog_from_request(
-        &self,
-        request: &IncomingRequest,
-    ) -> Option<mpsc::Sender<DialogMessage>> {
-        let dialog_id = DialogId::from_request(request)?;
+    pub(crate) fn get_dialog(&self, dialog_id: &DialogId) -> Option<Dialog> {
+        let dialogs = self.dialogs.read().expect("Lock failed");
 
-        let dialogs = self.dialogs.lock().expect("Lock failed");
-
-        dialogs.get(&dialog_id).cloned()
+        dialogs.get(dialog_id).cloned()
     }
 }
 
@@ -54,9 +46,13 @@ impl endpoint::Plugin for UaPlugin {
         if request.req_line.method == SipMethod::Cancel {
             return;
         }
+        let Some(dialog_id) = DialogId::from_incoming_request(&request) else {
+            return;
+        };
+
         let request = request.take();
 
-        let Some(sender) = self.get_dialog_from_request(&request) else {
+        let Some(dialog) = self.get_dialog(&dialog_id) else {
             if request.req_line.method != SipMethod::Ack {
                 let mut response = endpoint.create_outgoing_response(
                     &request,
@@ -68,9 +64,7 @@ impl endpoint::Plugin for UaPlugin {
             return;
         };
 
-        if let Err(err) = sender.send(DialogMessage::Request(request)).await {
-            log::error!("failed to send message to dialog! {err}");
-        }
+        // handle
     }
 
     async fn on_receive_response(&self, _response: ReceivedResponse<'_>, _endpoint: &Endpoint) {}
