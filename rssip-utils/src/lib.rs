@@ -1,6 +1,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
-//! This lib provide several utilities for use in the `voip` project.
+//! This lib provide several utilities for use in the `rssip` project.
 
 pub mod local_ip;
 pub mod lookup_table;

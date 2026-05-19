@@ -1,6 +1,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
-//! # voip-sip
+//! # rssip-sip
 //!
 //! A rust library that implements the SIP protocol.
 //!
@@ -78,7 +78,7 @@ pub(crate) fn is_valid_port(v: u16) -> bool {
 /// # Examples
 ///
 /// ```
-/// use voip::Q;
+/// use rssip::Q;
 ///
 /// let q_value = "0.5".parse();
 /// assert_eq!(q_value, Ok(Q(0, 5)));

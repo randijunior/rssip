@@ -1,6 +1,7 @@
 pub mod dialog;
 
 use std::sync::RwLock;
+use std::sync::atomic::Ordering;
 
 use dialog::DialogId;
 use rustc_hash::FxHashMap;
@@ -63,6 +64,24 @@ impl endpoint::Plugin for UaPlugin {
             }
             return;
         };
+        let request_cseq = request.incoming_info.mandatory_headers.cseq.cseq();
+
+        if dialog.remote_cseq().try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            if request_cseq > current {
+                Some(request_cseq)
+            } else {
+                None
+            }
+        }).is_err() {
+            let warn_text = Some("Invalid Cseq".into());
+            let mut response = endpoint.create_outgoing_response(
+                &request,
+                StatusCode::ServerInternalError,
+                warn_text,
+            );
+            endpoint.send_outgoing_response(&mut response).await;
+
+        }
 
         // handle
     }

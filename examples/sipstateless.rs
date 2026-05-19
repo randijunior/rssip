@@ -2,9 +2,9 @@ use std::error::Error;
 
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
-use voip::sip::endpoint::{self, Endpoint, ReceivedRequest};
-use voip::sip::message::method::SipMethod;
-use voip::sip::message::status_code::StatusCode;
+use rssip::sip::endpoint::{self, Endpoint, ReceivedRequest};
+use rssip::sip::message::method::SipMethod;
+use rssip::sip::message::status_code::StatusCode;
 
 pub struct SipStateless;
 
@@ -33,7 +33,7 @@ impl endpoint::Plugin for SipStateless {
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
         .with_max_level(Level::TRACE)
-        .with_env_filter("voip=trace")
+        .with_env_filter("rssip=trace")
         .with_timer(ChronoLocal::new(String::from("%H:%M:%S%.3f")))
         .init();
 

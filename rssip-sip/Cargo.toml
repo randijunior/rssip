@@ -1,5 +1,5 @@
 [package]
-name = "voip-sip"
+name = "rssip-sip"
 version = "0.1.0"
 edition.workspace = true
 
