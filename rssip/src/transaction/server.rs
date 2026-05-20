@@ -7,11 +7,10 @@ use crate::error::{Error, Result};
 use crate::message::ReasonPhrase;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
-use crate::transaction::TransactionMessage;
 use crate::transaction::fsm::{State, StateMachine};
-use crate::transaction::manager::TransactionKey;
+use crate::transaction::manager::{TransactionEntry, TransactionKey};
 use crate::transaction::timers::{T1, T2, T4};
-use crate::transport::incoming::IncomingRequest;
+use crate::transport::incoming::{IncomingMessage, IncomingRequest};
 use crate::transport::outgoing::{OutgoingDestInfo, OutgoingResponse, TargetTransportInfo};
 
 const CHANNEL_RECV_BUG: &str = "receiver should exist when no provisional response is sent";
@@ -25,7 +24,7 @@ pub struct ServerTransaction {
     state_machine: StateMachine,
     request: IncomingRequest,
     target_info: Option<TargetTransportInfo>,
-    receiver: Option<mpsc::Receiver<TransactionMessage>>,
+    receiver: Option<mpsc::Receiver<IncomingMessage>>,
     provisonal_retrans_handle: Option<ProvisionalRetransHandle>,
 }
 
@@ -189,7 +188,7 @@ impl ServerTransaction {
                     let fut = time::timeout(retrans_interval, channel.recv());
 
                     match time::timeout_at(deadline, fut).await {
-                        Ok(Ok(Some(TransactionMessage::Request(req))))
+                        Ok(Ok(Some(IncomingMessage::Request(req))))
                             if req.req_line.method == SipMethod::Ack =>
                         {
                             self.set_state(State::Confirmed);
@@ -262,6 +261,13 @@ impl ServerTransaction {
         &self.endpoint
     }
 
+    pub(crate) fn get_entry(&self) -> TransactionEntry {
+        self.endpoint()
+            .tsx_plugin()
+            .get_entry(self.key())
+            .expect("must exists while server tsx is not dropped")
+    }
+
     fn set_state(&mut self, state: State) {
         self.state_machine.set_state(state);
     }
@@ -329,7 +335,7 @@ impl ServerTransaction {
 }
 
 struct ProvisionalRetransHandle {
-    join_handle: task::JoinHandle<mpsc::Receiver<TransactionMessage>>,
+    join_handle: task::JoinHandle<mpsc::Receiver<IncomingMessage>>,
     provisional_tx: mpsc::UnboundedSender<OutgoingResponse>,
 }
 

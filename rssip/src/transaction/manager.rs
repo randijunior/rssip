@@ -3,14 +3,16 @@ use std::sync;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use tokio::sync::mpsc::{self};
 
-use super::{Role, TransactionMessage};
+use super::Role;
 use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
 use crate::message::method::SipMethod;
 use crate::message::sip_uri::HostPort;
-use crate::transport::incoming::{IncomingInfo, IncomingRequest, IncomingResponse};
+use crate::transport::incoming::{
+    IncomingInfo, IncomingMessage, IncomingRequest, IncomingResponse,
+};
 use crate::{Endpoint, RFC3261_BRANCH_ID};
 
-pub(crate) type TransactionEntry = mpsc::Sender<TransactionMessage>;
+pub(crate) type TransactionEntry = mpsc::Sender<IncomingMessage>;
 
 #[derive(Default)]
 pub struct TsxPlugin {
@@ -64,7 +66,7 @@ impl endpoint::Plugin for TsxPlugin {
         let request = request.take();
 
         channel
-            .send(TransactionMessage::Request(request))
+            .send(IncomingMessage::Request(request))
             .await
             .unwrap();
     }
@@ -78,7 +80,7 @@ impl endpoint::Plugin for TsxPlugin {
 
         let response = response.take();
 
-        let _res = channel.send(TransactionMessage::Response(response)).await;
+        let _res = channel.send(IncomingMessage::Response(response)).await;
     }
 }
 
@@ -90,11 +92,11 @@ pub enum TransactionKey {
 
 impl TransactionKey {
     pub fn from_request(request: &IncomingRequest) -> Self {
-        Self::from_incoming_info(&request.incoming_info, Role::UAS)
+        Self::from_incoming_info(&request.incoming_info, Role::Uas)
     }
 
     pub fn from_response(response: &IncomingResponse) -> Self {
-        Self::from_incoming_info(&response.incoming_info, Role::UAC)
+        Self::from_incoming_info(&response.incoming_info, Role::Uac)
     }
 
     fn from_incoming_info(info: &IncomingInfo, role: Role) -> Self {

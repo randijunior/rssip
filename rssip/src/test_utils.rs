@@ -132,11 +132,13 @@ pub mod transaction {
     use crate::message::Request;
     use crate::message::method::SipMethod;
     use crate::message::status_code::StatusCode;
+    use crate::transaction::ServerTransaction;
     use crate::transaction::client::ClientTransaction;
     use crate::transaction::fsm::{self};
     use crate::transaction::timers::{T1, T2, T4};
-    use crate::transaction::{ServerTransaction, TransactionMessage};
-    use crate::transport::incoming::{IncomingInfo, IncomingRequest, IncomingResponse};
+    use crate::transport::incoming::{
+        IncomingInfo, IncomingMessage, IncomingRequest, IncomingResponse,
+    };
     use crate::transport::{Packet, Transport, TransportMessage};
 
     pub const CODE_100_TRYING: StatusCode = StatusCode::Trying;
@@ -168,7 +170,7 @@ pub mod transaction {
     }
 
     pub struct FakeUAS {
-        pub sender: mpsc::Sender<TransactionMessage>,
+        pub sender: mpsc::Sender<IncomingMessage>,
         pub request: IncomingRequest,
         pub endpoint: Endpoint,
     }
@@ -199,14 +201,14 @@ pub mod transaction {
                 incoming_info: Box::new(info),
             };
 
-            let transaction_message = TransactionMessage::Response(response);
+            let transaction_message = IncomingMessage::Response(response);
 
             self.sender.send(transaction_message).await.unwrap();
         }
     }
 
     pub struct FakeUAC {
-        pub sender: mpsc::Sender<TransactionMessage>,
+        pub sender: mpsc::Sender<IncomingMessage>,
         pub request: IncomingRequest,
     }
 
@@ -229,7 +231,7 @@ pub mod transaction {
 
         async fn send(&self, request: IncomingRequest) {
             self.sender
-                .send(TransactionMessage::Request(request))
+                .send(IncomingMessage::Request(request))
                 .await
                 .unwrap();
             tokio::task::yield_now().await;

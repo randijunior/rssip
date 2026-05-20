@@ -1,7 +1,5 @@
 //! Transaction Layer.
 
-use std::time::Duration;
-
 pub use client::ClientTransaction;
 pub use manager::TsxPlugin;
 pub use server::ServerTransaction;
@@ -16,12 +14,6 @@ pub(crate) mod timers;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum Role {
-    UAS,
-    UAC,
-}
-
-#[derive(Clone)]
-pub enum TransactionMessage {
-    Request(IncomingRequest),
-    Response(IncomingResponse),
+    Uac,
+    Uas,
 }

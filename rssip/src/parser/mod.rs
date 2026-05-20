@@ -381,12 +381,20 @@ impl<'buf> SipParser<'buf> {
     pub fn parse_sip_uri(&mut self, params: bool) -> Result<sip_uri::SipUri> {
         self.skip_ws();
 
-        if matches!(self.scanner.peek_n(3), Some(SIP) | Some(SIPS)) {
-            let uri = self.parse_uri(params)?;
-            Ok(sip_uri::SipUri::Uri(uri))
-        } else {
+        if matches!(self.scanner.peek(), Some(b'"') | Some(b'<')) {
             let name_addr = self.parse_name_addr()?;
             Ok(sip_uri::SipUri::NameAddr(name_addr))
+        } else {
+            let scheme_or_display = self
+                .scanner
+                .peek_while(|b| !matches!(b, b':' | b'\r' | b'\n' | b'<'));
+            if matches!(scheme_or_display, SIP | SIPS) {
+                let uri = self.parse_uri(params)?;
+                Ok(sip_uri::SipUri::Uri(uri))
+            } else {
+                let name_addr = self.parse_name_addr()?;
+                Ok(sip_uri::SipUri::NameAddr(name_addr))
+            }
         }
     }
 

@@ -6,6 +6,12 @@ use crate::message::headers::{CSeq, CallId, From as FromHeader, Header, Headers,
 use crate::message::{Request, Response};
 use crate::parser::HeaderParse;
 
+#[derive(Clone)]
+pub enum IncomingMessage {
+    Request(IncomingRequest),
+    Response(IncomingResponse),
+}
+
 /// This type represents an received SIP request.
 #[derive(Clone)]
 pub struct IncomingRequest {

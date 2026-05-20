@@ -1,7 +1,7 @@
 pub mod dialog;
+pub mod session;
 
 use std::sync::RwLock;
-use std::sync::atomic::Ordering;
 
 use dialog::DialogId;
 use rustc_hash::FxHashMap;
@@ -11,6 +11,8 @@ use crate::Endpoint;
 use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
+use crate::transport::incoming::IncomingMessage;
+use crate::ua::dialog::DialogState;
 
 #[derive(Default)]
 pub struct UaPlugin {
@@ -44,9 +46,6 @@ impl endpoint::Plugin for UaPlugin {
     }
 
     async fn on_receive_request(&self, mut request: ReceivedRequest<'_>, endpoint: &Endpoint) {
-        if request.req_line.method == SipMethod::Cancel {
-            return;
-        }
         let Some(dialog_id) = DialogId::from_incoming_request(&request) else {
             return;
         };
@@ -60,30 +59,35 @@ impl endpoint::Plugin for UaPlugin {
                     StatusCode::CallOrTransactionDoesNotExist,
                     None,
                 );
-                let _res = endpoint.send_outgoing_response(&mut response).await;
+                if let Err(err) = endpoint.send_outgoing_response(&mut response).await {
+                    log::error!("Error sending response = {err:?}");
+                }
             }
             return;
         };
         let request_cseq = request.incoming_info.mandatory_headers.cseq.cseq();
 
-        if dialog.remote_cseq().try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            if request_cseq > current {
-                Some(request_cseq)
-            } else {
-                None
+        if !matches!(request.req_line.method, SipMethod::Cancel | SipMethod::Ack) {
+            if dialog.update_remote_cseq(request_cseq).is_err() {
+                let mut response = endpoint.create_outgoing_response(
+                    &request,
+                    StatusCode::ServerInternalError,
+                    Some("Invalid Cseq".into()),
+                );
+                if let Err(err) = endpoint.send_outgoing_response(&mut response).await {
+                    log::error!("Error sending response = {err:?}");
+                }
             }
-        }).is_err() {
-            let warn_text = Some("Invalid Cseq".into());
-            let mut response = endpoint.create_outgoing_response(
-                &request,
-                StatusCode::ServerInternalError,
-                warn_text,
-            );
-            endpoint.send_outgoing_response(&mut response).await;
+        }
+        let dialog_sate = dialog.state();
 
+        if request.req_line.method == SipMethod::Ack && dialog_sate == DialogState::Completed {
+            dialog.set_state(DialogState::Confirmed);
         }
 
-        // handle
+        if let Some(sender) = dialog.channel() {
+            let _res = sender.send(IncomingMessage::Request(request)).await;
+        }
     }
 
     async fn on_receive_response(&self, _response: ReceivedResponse<'_>, _endpoint: &Endpoint) {}

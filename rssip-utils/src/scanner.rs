@@ -293,8 +293,9 @@ impl<'buf> Scanner<'buf> {
     }
 
     pub fn scan_newline(&mut self) -> Result<()> {
-        let newline = self.scan_while(is_newline);
-        if newline.is_empty() {
+        let carriage_return = self.scan_if_eq(b'\r');
+        let line_feed = self.scan_if_eq(b'\n');
+        if carriage_return.is_none() && line_feed.is_none() {
             return Err(self.scan_error(ScannerErrorKind::NonNewLine));
         }
         Ok(())

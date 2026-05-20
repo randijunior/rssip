@@ -1,31 +1,24 @@
-use std::fmt;
+use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::error::Result;
+use tokio::sync::mpsc;
+
 use crate::message::headers::{CallId, Contact, From, Header, Headers, To};
 use crate::message::param::Params;
 use crate::message::sip_uri::{Scheme, Uri};
 use crate::message::status_code::StatusCode;
 use crate::transaction::{Role, ServerTransaction};
-use crate::transport::incoming::IncomingRequest;
+use crate::transport::incoming::{IncomingMessage, IncomingRequest};
 use crate::{Endpoint, OutgoingResponse, find_map_mut_header};
 
-
-enum DialogState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DialogState {
     Initial,
     Early,
+    Completed,
     Confirmed,
-}
-
-impl fmt::Display for DialogState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Initial => f.write_str("INITIAL"),
-            Self::Early => f.write_str("EARLY"),
-            Self::Confirmed => f.write_str("CONFIRMED"),
-        }
-    }
+    Terminated,
 }
 
 /// Represents a SIP Dialog.
@@ -45,6 +38,7 @@ struct Inner {
     secure: bool,
     route_set: Vec<RouteSet>,
     role: Role,
+    channel: Mutex<Option<mpsc::Sender<IncomingMessage>>>,
 }
 
 impl Dialog {
@@ -73,8 +67,9 @@ impl Dialog {
                 && request.req_line.uri.scheme == Scheme::Sips,
             route_set: RouteSet::from_headers(&request.headers),
             state: Mutex::new(DialogState::Initial),
-            role: Role::UAS,
+            role: Role::Uas,
             contact,
+            channel: Mutex::new(None),
         });
 
         let dialog = Dialog { inner };
@@ -86,21 +81,7 @@ impl Dialog {
         dialog
     }
 
-    pub(super) async fn respond_provisional(
-        &self,
-        server_tsx: &mut ServerTransaction,
-        status_code: StatusCode,
-    ) -> Result<()> {
-        let response = self.create_response(server_tsx, status_code);
-
-        server_tsx.send_provisional_response(response).await?;
-
-        self.set_state(DialogState::Early);
-
-        Ok(())
-    }
-
-    fn create_response(
+    pub(super) fn create_response(
         &self,
         server_tsx: &ServerTransaction,
         status_code: StatusCode,
@@ -139,16 +120,34 @@ impl Dialog {
         response
     }
 
-    fn set_state(&self, dialog_state: DialogState) {
-        let mut state = self.inner.state.lock().expect("poisoned");
-        *state = dialog_state;
+    pub(super) fn set_channel(&self, sender: mpsc::Sender<IncomingMessage>) {
+        *self.inner.channel.lock().expect("poisoned") = Some(sender);
     }
 
-    pub(super) fn remote_cseq(&self) -> &AtomicU32 {
-        &self.inner.remote_cseq
+    pub(super) fn channel(&self) -> Option<mpsc::Sender<IncomingMessage>> {
+        self.inner.channel.lock().expect("poisoned").clone()
+    }
+
+    pub(super) fn set_state(&self, dialog_state: DialogState) {
+        *self.inner.state.lock().expect("poisoned") = dialog_state;
+    }
+
+    pub(super) fn state(&self) -> DialogState {
+        self.inner.state.lock().expect("poisoned").clone()
+    }
+
+    pub(super) fn update_remote_cseq(&self, new_value: u32) -> StdResult<u32, u32> {
+        self.inner
+            .remote_cseq
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |dialog_cseq| {
+                if new_value > dialog_cseq {
+                    Some(new_value)
+                } else {
+                    None
+                }
+            })
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DialogId {

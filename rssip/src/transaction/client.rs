@@ -9,12 +9,12 @@ use crate::message::Request;
 use crate::message::headers::via::Rport;
 use crate::message::headers::{Header, Via};
 use crate::message::method::SipMethod;
+use crate::transaction::Role;
 use crate::transaction::fsm::{State, StateMachine};
 use crate::transaction::manager::TransactionKey;
 use crate::transaction::timers::{T1, T4};
-use crate::transaction::{Role, TransactionMessage};
 use crate::transport::Transport;
-use crate::transport::incoming::IncomingResponse;
+use crate::transport::incoming::{IncomingMessage, IncomingResponse};
 use crate::transport::outgoing::OutgoingRequest;
 use crate::{Endpoint, Result, find_map_mut_header};
 
@@ -26,7 +26,7 @@ pub struct ClientTransaction {
     endpoint: Endpoint,
     state_machine: StateMachine,
     request: OutgoingRequest,
-    channel: PeekableReceiver<TransactionMessage>,
+    channel: PeekableReceiver<IncomingMessage>,
     timeout: Instant,
 }
 
@@ -81,7 +81,7 @@ impl ClientTransaction {
                 branch
             }
         };
-        let key = TransactionKey::new_key_3261(Role::UAC, method, branch);
+        let key = TransactionKey::new_key_3261(Role::Uac, method, branch);
 
         endpoint.send_outgoing_request(&mut outgoing).await?;
 
@@ -156,7 +156,7 @@ impl ClientTransaction {
         };
 
         tokio::spawn(async move {
-            while let Ok(Some(TransactionMessage::Response(_))) =
+            while let Ok(Some(IncomingMessage::Response(_))) =
                 time::timeout_at(timer, self.channel.recv()).await
             {
                 if let Some(ref mut ack) = ack_request
@@ -241,10 +241,10 @@ impl ClientTransaction {
     }
 
     async fn recv_if(&mut self, cond: fn(&IncomingResponse) -> bool) -> Option<IncomingResponse> {
-        let cond = |msg: &TransactionMessage| matches!(msg, TransactionMessage::Response(response) if cond(response));
+        let cond = |msg: &IncomingMessage| matches!(msg, IncomingMessage::Response(response) if cond(response));
 
         match self.channel.recv_if(cond).await {
-            Some(TransactionMessage::Response(res)) => Some(res),
+            Some(IncomingMessage::Response(res)) => Some(res),
             _ => None,
         }
     }
@@ -273,7 +273,7 @@ impl ClientTransaction {
 impl Drop for ClientTransaction {
     fn drop(&mut self) {
         self.endpoint.tsx_plugin().remove_transaction(&self.key);
-        log::trace!("Transaction Destroyed [{:#?}] ({:p})", Role::UAC, &self);
+        log::trace!("Transaction Destroyed [{:#?}] ({:p})", Role::Uac, &self);
     }
 }
 

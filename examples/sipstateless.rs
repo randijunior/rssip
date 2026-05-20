@@ -1,10 +1,10 @@
 use std::error::Error;
 
+use rssip::endpoint::{self, Endpoint, ReceivedRequest};
+use rssip::message::method::SipMethod;
+use rssip::message::status_code::StatusCode;
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
-use rssip::sip::endpoint::{self, Endpoint, ReceivedRequest};
-use rssip::sip::message::method::SipMethod;
-use rssip::sip::message::status_code::StatusCode;
 
 pub struct SipStateless;
 
