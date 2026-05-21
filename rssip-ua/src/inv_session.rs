@@ -1,13 +1,10 @@
+use rssip::dialog::{Dialog, DialogState};
+use rssip::message::headers::Contact;
+use rssip::message::method::SipMethod;
+use rssip::message::status_code::StatusCode;
+use rssip::transaction::{Role, ServerTransaction};
+use rssip::{Endpoint, IncomingMessage, IncomingRequest, Result};
 use tokio::sync::mpsc;
-
-use super::dialog::Dialog;
-use crate::message::headers::Contact;
-use crate::message::method::SipMethod;
-use crate::message::status_code::StatusCode;
-use crate::transaction::{Role, ServerTransaction};
-use crate::transport::incoming::{IncomingMessage, IncomingRequest};
-use crate::ua::dialog::DialogState;
-use crate::{Endpoint, Result};
 
 pub struct InvSession<S> {
     state: S,
@@ -20,7 +17,7 @@ pub struct Incoming {
     server_tsx: ServerTransaction,
 }
 
-pub struct Established {
+pub struct Completed {
     receiver: mpsc::Receiver<IncomingMessage>,
 }
 
@@ -51,7 +48,7 @@ impl InvSession<Incoming> {
         Ok(())
     }
 
-    pub async fn accept(self, status_code: StatusCode) -> Result<InvSession<Established>> {
+    pub async fn accept(self, status_code: StatusCode) -> Result<InvSession<Completed>> {
         let Incoming { dialog, server_tsx } = self.state;
         let response = dialog.create_response(&server_tsx, status_code);
 
@@ -59,11 +56,10 @@ impl InvSession<Incoming> {
 
         let (sender, receiver) = mpsc::channel(5);
 
-        dialog.set_channel(sender);
-        dialog.set_state(DialogState::Completed);
+        dialog.set_state(DialogState::Established(sender));
 
         Ok(InvSession {
-            state: Established { receiver },
+            state: Completed { receiver },
             endpoint: self.endpoint,
             role: self.role,
         })
@@ -76,7 +72,7 @@ pub enum SessionEvent {
     Options(IncomingRequest),
 }
 
-impl InvSession<Established> {
+impl InvSession<Completed> {
     pub async fn recv(&mut self) -> Option<SessionEvent> {
         let msg = self.state.receiver.recv().await?;
 
@@ -84,43 +80,9 @@ impl InvSession<Established> {
             IncomingMessage::Request(request) => match request.req_line.method {
                 SipMethod::Invite => Some(SessionEvent::ReInvite(request)),
                 SipMethod::Bye => Some(SessionEvent::Bye(request)),
-                other => {
-                    log::debug!("Received Other Method: {other}");
-                    None
-                }
+                other => None,
             },
             IncomingMessage::Response(incoming_response) => todo!(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::message::method::SipMethod;
-    use crate::message::status_code::StatusCode;
-    use crate::test_utils::transport::MockTransport;
-    use crate::test_utils::{create_test_endpoint, create_test_request};
-    use crate::transport::Transport;
-
-    fn create_test_invite() -> IncomingRequest {
-        let transport = Transport::new(MockTransport::new_udp());
-        create_test_request(SipMethod::Invite, transport)
-    }
-
-    #[tokio::test]
-    async fn test_create_session() {
-        let endpoint = create_test_endpoint().await;
-        let req = create_test_invite();
-        let contact = "test <sip:localhost:5969>".parse().unwrap();
-
-        let mut session = InvSession::create_uas(req, contact, endpoint).unwrap();
-
-        session.progress(StatusCode::Trying).await.unwrap();
-        session.progress(StatusCode::Ringing).await.unwrap();
-
-        let mut session = session.accept(StatusCode::Ok).await.unwrap();
-
-        while let Some(evt) = session.recv().await {}
     }
 }

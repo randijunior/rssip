@@ -14,6 +14,7 @@ use bytes::Bytes;
 pub use plugin::{Plugin, ReceivedRequest, ReceivedResponse};
 
 use crate::Result;
+use crate::dialog::DialogPlugin;
 use crate::endpoint::plugin::Plugins;
 use crate::error::Error;
 use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
@@ -29,7 +30,6 @@ use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
 };
 use crate::transport::{Transport, TransportLayer};
-use crate::ua::UaPlugin;
 
 struct EndpointInner {
     /// The transport layer for the endpoint.
@@ -533,8 +533,8 @@ impl Endpoint {
         self.plugin::<TsxPlugin>()
     }
 
-    pub(crate) fn ua_plugin(&self) -> &UaPlugin {
-        self.plugin::<UaPlugin>()
+    pub(crate) fn ua_plugin(&self) -> &DialogPlugin {
+        self.plugin::<DialogPlugin>()
     }
 
     fn from_inner(inner: Arc<EndpointInner>) -> Self {

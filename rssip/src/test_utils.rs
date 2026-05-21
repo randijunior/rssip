@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use bytes::Bytes;
 
+use crate::dialog::DialogPlugin;
 use crate::endpoint::{Endpoint, EndpointBuilder};
 use crate::message::Request;
 use crate::message::headers::{CSeq, CallId, From, Header, Headers, MaxForwards, To, Via};
@@ -12,12 +13,11 @@ use crate::message::sip_uri::Uri;
 use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
 use crate::transport::{Packet, Transport, TransportMessage};
-use crate::ua::UaPlugin;
 
 pub async fn create_test_endpoint() -> Endpoint {
     EndpointBuilder::new()
         .with_udp_addr("127.0.0.1:0")
-        .with_plugin(UaPlugin::default())
+        .with_plugin(DialogPlugin::default())
         .with_plugin(TsxPlugin::default())
         .build()
         .await

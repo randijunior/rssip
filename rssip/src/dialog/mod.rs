@@ -1,25 +1,22 @@
-pub mod dialog;
-pub mod session;
-
+mod dialog;
 use std::sync::RwLock;
 
 use dialog::DialogId;
 use rustc_hash::FxHashMap;
 
-use self::dialog::Dialog;
+pub use self::dialog::{Dialog, DialogState};
 use crate::Endpoint;
 use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transport::incoming::IncomingMessage;
-use crate::ua::dialog::DialogState;
 
 #[derive(Default)]
-pub struct UaPlugin {
+pub struct DialogPlugin {
     dialogs: RwLock<FxHashMap<DialogId, Dialog>>,
 }
 
-impl UaPlugin {
+impl DialogPlugin {
     pub(crate) fn register_dialog(&self, dialog_id: DialogId, dialog: Dialog) {
         let mut dialogs = self.dialogs.write().expect("Lock failed");
 
@@ -40,9 +37,9 @@ impl UaPlugin {
 }
 
 #[async_trait::async_trait]
-impl endpoint::Plugin for UaPlugin {
+impl endpoint::Plugin for DialogPlugin {
     fn name(&self) -> &'static str {
-        "dialog-ua"
+        "dialog"
     }
 
     async fn on_receive_request(&self, mut request: ReceivedRequest<'_>, endpoint: &Endpoint) {
@@ -79,13 +76,8 @@ impl endpoint::Plugin for UaPlugin {
                 }
             }
         }
-        let dialog_sate = dialog.state();
 
-        if request.req_line.method == SipMethod::Ack && dialog_sate == DialogState::Completed {
-            dialog.set_state(DialogState::Confirmed);
-        }
-
-        if let Some(sender) = dialog.channel() {
+        if let DialogState::Established(sender) = dialog.state() {
             let _res = sender.send(IncomingMessage::Request(request)).await;
         }
     }

@@ -12,13 +12,11 @@ use crate::transaction::{Role, ServerTransaction};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};
 use crate::{Endpoint, OutgoingResponse, find_map_mut_header};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum DialogState {
     Initial,
     Early,
-    Completed,
-    Confirmed,
-    Terminated,
+    Established(mpsc::Sender<IncomingMessage>),
 }
 
 /// Represents a SIP Dialog.
@@ -38,15 +36,10 @@ struct Inner {
     secure: bool,
     route_set: Vec<RouteSet>,
     role: Role,
-    channel: Mutex<Option<mpsc::Sender<IncomingMessage>>>,
 }
 
 impl Dialog {
-    pub(super) fn new_uas(
-        endpoint: &Endpoint,
-        request: &IncomingRequest,
-        contact: Contact,
-    ) -> Dialog {
+    pub fn new_uas(endpoint: &Endpoint, request: &IncomingRequest, contact: Contact) -> Dialog {
         let mandatory_headers = &request.incoming_info.mandatory_headers;
         debug_assert!(
             mandatory_headers.to.tag.is_none(),
@@ -69,7 +62,6 @@ impl Dialog {
             state: Mutex::new(DialogState::Initial),
             role: Role::Uas,
             contact,
-            channel: Mutex::new(None),
         });
 
         let dialog = Dialog { inner };
@@ -81,7 +73,7 @@ impl Dialog {
         dialog
     }
 
-    pub(super) fn create_response(
+    pub fn create_response(
         &self,
         server_tsx: &ServerTransaction,
         status_code: StatusCode,
@@ -120,23 +112,15 @@ impl Dialog {
         response
     }
 
-    pub(super) fn set_channel(&self, sender: mpsc::Sender<IncomingMessage>) {
-        *self.inner.channel.lock().expect("poisoned") = Some(sender);
-    }
-
-    pub(super) fn channel(&self) -> Option<mpsc::Sender<IncomingMessage>> {
-        self.inner.channel.lock().expect("poisoned").clone()
-    }
-
-    pub(super) fn set_state(&self, dialog_state: DialogState) {
+    pub fn set_state(&self, dialog_state: DialogState) {
         *self.inner.state.lock().expect("poisoned") = dialog_state;
     }
 
-    pub(super) fn state(&self) -> DialogState {
+    pub fn state(&self) -> DialogState {
         self.inner.state.lock().expect("poisoned").clone()
     }
 
-    pub(super) fn update_remote_cseq(&self, new_value: u32) -> StdResult<u32, u32> {
+    pub fn update_remote_cseq(&self, new_value: u32) -> StdResult<u32, u32> {
         self.inner
             .remote_cseq
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |dialog_cseq| {
