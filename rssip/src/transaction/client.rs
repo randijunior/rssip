@@ -281,7 +281,7 @@ impl Drop for ClientTransaction {
 mod tests {
     use super::*;
     use crate::assert_eq_state;
-    use crate::error::{Error, TransactionError};
+    use crate::error::{Error};
     use crate::test_utils::transaction::{
         CODE_100_TRYING, CODE_180_RINGING, CODE_202_ACCEPTED, CODE_301_MOVED_PERMANENTLY,
         CODE_404_NOT_FOUND, CODE_504_SERVER_TIMEOUT, CODE_603_DECLINE, ClientTestContext,
@@ -319,8 +319,8 @@ mod tests {
 
         assert_matches!(
             opt_err,
-            Some(Error::TransactionError(TransactionError::Timeout)),
-            "Expected TransactionError::Timeout, got {opt_err:?}"
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
         );
 
         assert_eq!(
@@ -447,8 +447,8 @@ mod tests {
 
         assert_matches!(
             opt_err,
-            Some(Error::TransactionError(TransactionError::Timeout)),
-            "Expected TransactionError::Timeout, got {opt_err:?}"
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
         );
 
         assert_eq_state!(
@@ -873,8 +873,8 @@ mod tests {
 
         assert_matches!(
             opt_err,
-            Some(Error::TransactionError(TransactionError::Timeout)),
-            "Expected TransactionError::Timeout, got {opt_err:?}"
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
         );
 
         assert_eq!(
@@ -1090,8 +1090,8 @@ mod tests {
 
         assert_matches!(
             opt_err,
-            Some(Error::TransactionError(TransactionError::Timeout)),
-            "Expected TransactionError::Timeout, got {opt_err:?}"
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
         );
 
         assert_eq_state!(

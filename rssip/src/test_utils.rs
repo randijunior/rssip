@@ -505,7 +505,7 @@ pub mod transport {
             if let Some(fail_at) = self.fail_at
                 && fail_at == current_count
             {
-                return Err(crate::Error::TransportError("Simulated failure".into()));
+                return Err(crate::Error::Transport("Simulated failure".into()));
             }
 
             Ok(buf.len())

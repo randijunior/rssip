@@ -304,7 +304,7 @@ impl Endpoint {
             }
         }
 
-        Err(Error::TransportError("Failed to send response!".to_owned()))
+        Err(Error::Transport("Failed to send response!".to_owned()))
     }
 
     // RFC 3261 - 18.2.2 Sending Responses
@@ -442,7 +442,7 @@ impl Endpoint {
                     };
                 }
 
-                return Err(Error::TransportError(format!(
+                return Err(Error::Transport(format!(
                     "No transport found for : {}",
                     new_request_uri
                 )));

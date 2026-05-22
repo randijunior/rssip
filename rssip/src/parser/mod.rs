@@ -638,7 +638,7 @@ impl<'buf> SipParser<'buf> {
 
     /// Shortcut for yielding a parse error wrapped in a result type.
     pub fn error<T>(&self, kind: Kind) -> Result<T> {
-        Err(Error::ParseError(ParseError {
+        Err(Error::Parse(ParseError {
             kind,
             position: self.scanner.position(),
         }))

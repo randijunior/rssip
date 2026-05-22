@@ -6,8 +6,8 @@ use rssip::transaction::{Role, ServerTransaction};
 use rssip::{Endpoint, IncomingMessage, IncomingRequest, Result};
 use tokio::sync::mpsc;
 
-pub struct InvSession<S> {
-    state: S,
+pub struct InvSession<State> {
+    state: State,
     endpoint: Endpoint,
     role: Role,
 }
@@ -27,12 +27,12 @@ impl InvSession<Incoming> {
         contact: Contact,
         endpoint: Endpoint,
     ) -> Result<Self> {
-        let dialog = Dialog::new_uas(&endpoint, &request, contact);
+        let dialog = Dialog::create_uas(&endpoint, &request, contact)?;
         let server_tsx = endpoint.accept_request(request);
 
         Ok(InvSession {
             state: Incoming { dialog, server_tsx },
-            endpoint: endpoint,
+            endpoint,
             role: Role::Uas,
         })
     }

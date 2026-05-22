@@ -8,26 +8,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl std::convert::From<Utf8Error> for Error {
     fn from(value: Utf8Error) -> Self {
-        todo!()
+        Self::Other(format!("{:#?}", value))
     }
 }
 
-impl From<std::fmt::Error> for Error {
-    fn from(value: std::fmt::Error) -> Self {
-        Self::FmtError(value)
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
-    ParseError(#[from] ParseError),
+    Parse(#[from] ParseError),
 
     #[error("Transport: {0}")]
-    TransportError(String),
+    Transport(String),
 
     #[error("Transaction Error: {0}")]
-    TransactionError(#[from] TransactionError),
+    Transaction(#[from] TransactionError),
+
+    #[error("DialogError: {0}")]
+    Dialog(String),
 
     #[error("Missing required '{0}' header")]
     MissingHeader(&'static str),
@@ -45,18 +43,19 @@ pub enum Error {
     InvalidStatusCode,
 
     #[error("Fmt Error: {0}")]
-    FmtError(std::fmt::Error),
+    Fmt(#[from] std::fmt::Error),
 
     #[error("Resolve Error: {0}")]
     ResolveError(#[from] hickory_resolver::ResolveError),
 
-    #[error("Internal error: {0}")]
+    #[error("error: {0}")]
     Other(String),
+
 }
 
 impl Error {
     pub fn is_transport_error(&self) -> bool {
-        matches!(self, Self::TransportError(_))
+        matches!(self, Self::Transport(_))
     }
 }
 

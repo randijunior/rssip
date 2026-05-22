@@ -65,7 +65,7 @@ impl WebSocketTransport {
             .await
             .map_err(|e| IoError::new(IoErrorKind::TimedOut, e))?
             .map_err(|e| {
-                crate::Error::TransportError(format!("WebSocket Connection failed {e}!"))
+                crate::Error::Transport(format!("WebSocket Connection failed {e}!"))
             })?;
 
         let (local_addr, peer_addr) = match stream.get_ref() {
