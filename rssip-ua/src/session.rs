@@ -6,7 +6,7 @@ use rssip::transaction::{Role, ServerTransaction};
 use rssip::{Endpoint, IncomingMessage, IncomingRequest, Result};
 use tokio::sync::mpsc;
 
-pub struct InvSession<State> {
+pub struct InviteSession<State> {
     state: State,
     endpoint: Endpoint,
     role: Role,
@@ -21,8 +21,8 @@ pub struct Completed {
     receiver: mpsc::Receiver<IncomingMessage>,
 }
 
-impl InvSession<Incoming> {
-    pub fn create_uas(
+impl InviteSession<Incoming> {
+    pub fn incoming(
         request: IncomingRequest,
         contact: Contact,
         endpoint: Endpoint,
@@ -30,7 +30,7 @@ impl InvSession<Incoming> {
         let dialog = Dialog::create_uas(&endpoint, &request, contact)?;
         let server_tsx = endpoint.accept_request(request);
 
-        Ok(InvSession {
+        Ok(InviteSession {
             state: Incoming { dialog, server_tsx },
             endpoint,
             role: Role::Uas,
@@ -48,7 +48,7 @@ impl InvSession<Incoming> {
         Ok(())
     }
 
-    pub async fn accept(self, status_code: StatusCode) -> Result<InvSession<Completed>> {
+    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Completed>> {
         let Incoming { dialog, server_tsx } = self.state;
         let response = dialog.create_response(&server_tsx, status_code);
 
@@ -58,7 +58,7 @@ impl InvSession<Incoming> {
 
         dialog.set_state(DialogState::Established(sender));
 
-        Ok(InvSession {
+        Ok(InviteSession {
             state: Completed { receiver },
             endpoint: self.endpoint,
             role: self.role,
@@ -72,7 +72,7 @@ pub enum SessionEvent {
     Options(IncomingRequest),
 }
 
-impl InvSession<Completed> {
+impl InviteSession<Completed> {
     pub async fn recv(&mut self) -> Option<SessionEvent> {
         let msg = self.state.receiver.recv().await?;
 
