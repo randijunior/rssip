@@ -10,7 +10,7 @@ use crate::message::headers::ContentLength;
 use crate::message::sip_uri::HostPort;
 use crate::message::{Request, Response, SipBody};
 use crate::parser::HeaderParse;
-use crate::transport::{Transport, TransportProtocol};
+use crate::transport::{TransportHandle, TransportProtocol};
 
 /// This type represents an outbound SIP request.
 pub struct OutgoingRequest {
@@ -89,7 +89,7 @@ pub struct TargetTransportInfo {
     /// The socket this message should be sent to.
     pub socket_addr: SocketAddr,
     /// The transport to use for sending the message.
-    pub transport: Transport,
+    pub transport: TransportHandle,
 }
 
 /// Trait for converting a type into into a buffer.

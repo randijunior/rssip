@@ -30,7 +30,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use crate::error::{Error, Result};
 use crate::transport::{
-    Packet, SipTransport, Transport, TransportLayer, TransportMessage, TransportProtocol,
+    Packet, SipTransport, TransportHandle, TransportLayer, TransportMessage, TransportProtocol,
 };
 
 const SIP: HeaderValue = HeaderValue::from_static("sip");
@@ -56,7 +56,7 @@ impl WebSocketTransport {
         url: impl IntoClientRequest,
         timeout: Duration,
         transports: &TransportLayer,
-    ) -> Result<Transport> {
+    ) -> Result<TransportHandle> {
         let mut request = url.into_client_request().map_err(IoError::other)?;
 
         request.headers_mut().insert(SEC_WEBSOCKET_PROTOCOL, SIP);
@@ -83,7 +83,7 @@ impl WebSocketTransport {
             peer_addr,
             sender: tx,
         };
-        let transport = Transport::new(ws_transport);
+        let transport = TransportHandle::new(ws_transport);
 
         let transports_clone = transports.clone();
         let transport_clone = transport.clone();
@@ -286,12 +286,11 @@ impl WebSocketListener {
         log::debug!("WebSocket connection established with: {}", peer_addr);
         let (tx, rx) = mpsc::channel::<WsMessage>(1000);
 
-        let websocket = WebSocketTransport {
+        let transport = TransportHandle::new(WebSocketTransport {
             local_addr,
             peer_addr,
             sender: tx,
-        };
-        let transport = Transport::new(websocket);
+        });
 
         // Handle connection.
         handle_ws_connection(peer_addr, transports, transport, ws_stream, rx).await;
@@ -303,7 +302,7 @@ impl WebSocketListener {
 async fn handle_ws_connection<S>(
     addr: SocketAddr,
     transports: TransportLayer,
-    transport: Transport,
+    transport: TransportHandle,
     stream: WebSocketStream<S>,
     mut rx: mpsc::Receiver<WsMessage>,
 ) where

@@ -104,10 +104,10 @@ mod tests {
     use crate::message::status_code::StatusCode;
     use crate::test_utils::transport::MockTransport;
     use crate::test_utils::{create_test_endpoint, create_test_request};
-    use crate::transport::Transport;
+    use crate::transport::TransportHandle;
 
     fn create_test_invite() -> IncomingRequest {
-        let transport = Transport::new(MockTransport::new_udp());
+        let transport = TransportHandle::new(MockTransport::new_udp());
         create_test_request(SipMethod::Invite, transport)
     }
 

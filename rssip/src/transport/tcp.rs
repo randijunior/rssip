@@ -11,7 +11,7 @@ use tokio_util::codec::FramedRead;
 
 use super::decode::{FramedMessage, StreamingDecoder};
 use super::{
-    KEEPALIVE_RESPONSE, Packet, SipTransport, Transport, TransportMessage, TransportProtocol,
+    KEEPALIVE_RESPONSE, Packet, SipTransport, TransportHandle, TransportMessage, TransportProtocol,
 };
 use crate::error::{Error, Result};
 use crate::transport::TransportLayer;
@@ -30,7 +30,7 @@ pub struct TcpTransport {
 }
 
 impl TcpTransport {
-    pub(crate) async fn connect<A>(addr: A, transports: &TransportLayer) -> Result<Transport>
+    pub(crate) async fn connect<A>(addr: A, transports: &TransportLayer) -> Result<TransportHandle>
     where
         A: ToSocketAddrs + Send,
     {
@@ -45,7 +45,7 @@ impl TcpTransport {
         let read_half = FramedRead::new(read, decoder);
         let write_half = Mutex::new(write);
 
-        let transport = Transport::new(TcpTransport {
+        let transport = TransportHandle::new(TcpTransport {
             bind_addr,
             remote_addr,
             write_half,
@@ -148,7 +148,7 @@ impl TcpListener {
         let read_half = FramedRead::new(read, decoder);
         let write_half = Mutex::new(write);
 
-        let transport = Transport::new(TcpTransport {
+        let transport = TransportHandle::new(TcpTransport {
             bind_addr,
             remote_addr,
             write_half,
@@ -166,7 +166,7 @@ impl TcpListener {
 async fn tcp_read(
     mut framed: FramedRead<ReadHalf<TcpStream>, StreamingDecoder>,
     peer: SocketAddr,
-    transport: Transport,
+    transport: TransportHandle,
     transports: TransportLayer,
 ) -> Result<()> {
     loop {

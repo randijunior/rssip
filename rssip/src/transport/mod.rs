@@ -57,12 +57,12 @@ pub const MSG_HEADERS_END: &[u8] = b"\r\n\r\n";
 pub struct TransportLayer {
     endpoint: WeakEndpointHandle,
     resolver: DomainResolver,
-    transports: Arc<Mutex<rustc_hash::FxHashMap<TransportKey, Transport>>>,
+    transports: Arc<Mutex<rustc_hash::FxHashMap<TransportKey, TransportHandle>>>,
 }
 
 /// A wrapper around a SIP transport implementation.
 #[derive(Clone)]
-pub struct Transport {
+pub struct TransportHandle {
     /// Shared transport instance.
     shared: Arc<dyn SipTransport>,
 }
@@ -142,7 +142,7 @@ pub struct Packet {
 #[derive(Clone)]
 pub struct TransportMessage {
     /// Transport that received the packet.
-    pub transport: Transport,
+    pub transport: TransportHandle,
     /// The raw packet data and metadata.
     pub packet: Packet,
 }
@@ -157,7 +157,7 @@ impl TransportLayer {
     }
 
     /// Add a new transport to the transports.
-    pub fn register_transport(&self, key: TransportKey, value: Transport) {
+    pub fn register_transport(&self, key: TransportKey, value: TransportHandle) {
         self.insert(key, value);
     }
 
@@ -166,7 +166,7 @@ impl TransportLayer {
         self.remove(key);
     }
 
-    pub fn get_transport(&self, key: &TransportKey) -> Option<Transport> {
+    pub fn get_transport(&self, key: &TransportKey) -> Option<TransportHandle> {
         self.get(key)
     }
 
@@ -174,7 +174,7 @@ impl TransportLayer {
         &self,
         socket_addr: SocketAddr,
         protocol: TransportProtocol,
-    ) -> Result<Transport> {
+    ) -> Result<TransportHandle> {
         let key = TransportKey {
             socket_addr,
             protocol,
@@ -280,7 +280,7 @@ impl TransportLayer {
         &self.resolver
     }
 
-    fn insert(&self, key: TransportKey, value: Transport) {
+    fn insert(&self, key: TransportKey, value: TransportHandle) {
         let mut map = self.transports.lock().expect("Lock failed");
 
         map.insert(key, value);
@@ -293,7 +293,7 @@ impl TransportLayer {
         map.remove(key);
     }
 
-    fn get(&self, key: &TransportKey) -> Option<Transport> {
+    fn get(&self, key: &TransportKey) -> Option<TransportHandle> {
         let map = self.transports.lock().expect("Lock failed");
 
         if let Some(transport) = map.get(key) {
@@ -333,16 +333,16 @@ impl Default for TransportLayer {
     }
 }
 
-impl Transport {
+impl TransportHandle {
     /// Creates a new `Transport` instance with the given implementation.
     pub fn new(transport: impl SipTransport) -> Self {
-        Transport {
+        Self {
             shared: Arc::new(transport),
         }
     }
 }
 
-impl ops::Deref for Transport {
+impl ops::Deref for TransportHandle {
     type Target = dyn SipTransport;
 
     fn deref(&self) -> &Self::Target {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
-use super::{Packet, SipTransport, Transport, TransportProtocol};
+use super::{Packet, SipTransport, TransportHandle, TransportProtocol};
 use crate::error::Result;
 use crate::transport::{KEEPALIVE_REQUEST, KEEPALIVE_RESPONSE, TransportLayer, TransportMessage};
 
@@ -44,7 +44,7 @@ impl UdpTransport {
 
     /// Receive UDP datagrams on this transport.
     pub(crate) async fn receive_datagram(self, transports: TransportLayer) -> Result<()> {
-        let udp_tp = Transport::new(self.clone());
+        let udp_tp = TransportHandle::new(self.clone());
         // Buffer to recv packet.
         let mut buf = vec![0u8; 4000];
         loop {
@@ -75,12 +75,10 @@ impl UdpTransport {
             // Create Packet.
             let packet = Packet::new(datagram_msg, source);
 
-            let msg = TransportMessage {
+            transports.receive_message(TransportMessage {
                 transport: udp_tp.clone(),
                 packet,
-            };
-
-            transports.receive_message(msg);
+            });
         }
     }
 }

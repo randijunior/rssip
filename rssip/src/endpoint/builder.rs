@@ -9,7 +9,7 @@ use crate::message::method::SipMethod;
 use crate::transport::tcp::TcpListener;
 use crate::transport::udp::UdpTransport;
 use crate::transport::ws::WebSocketListener;
-use crate::transport::{SipTransport, Transport, TransportLayer};
+use crate::transport::{SipTransport, TransportHandle, TransportLayer};
 use crate::{Endpoint, MediaType, Result};
 
 /// Builder for creating a new SIP `Endpoint`.
@@ -150,7 +150,7 @@ impl EndpointBuilder {
             for addr in resolver.resolve()? {
                 let udp = UdpTransport::bind(addr).await?;
                 log::info!("SIP UDP transport started, bound to: {}", udp.local_addr());
-                transports.register_transport(udp.key(), Transport::new(udp.clone()));
+                transports.register_transport(udp.key(), TransportHandle::new(udp.clone()));
 
                 tokio::spawn(udp.receive_datagram(transports.clone()));
             }

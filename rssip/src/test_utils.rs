@@ -12,7 +12,7 @@ use crate::message::method::SipMethod;
 use crate::message::sip_uri::Uri;
 use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
-use crate::transport::{Packet, Transport, TransportMessage};
+use crate::transport::{Packet, TransportHandle, TransportMessage};
 
 pub async fn create_test_endpoint() -> Endpoint {
     EndpointBuilder::new()
@@ -47,7 +47,7 @@ fn create_test_headers(method: SipMethod) -> Headers {
     }
 }
 
-pub fn create_test_request(method: SipMethod, transport: Transport) -> IncomingRequest {
+pub fn create_test_request(method: SipMethod, transport: TransportHandle) -> IncomingRequest {
     let headers = create_test_headers(method);
     let target = format!("sip:{}", transport.local_addr());
     let uri = Uri::from_str(&target).unwrap();
@@ -139,7 +139,7 @@ pub mod transaction {
     use crate::transport::incoming::{
         IncomingInfo, IncomingMessage, IncomingRequest, IncomingResponse,
     };
-    use crate::transport::{Packet, Transport, TransportMessage};
+    use crate::transport::{Packet, TransportHandle, TransportMessage};
 
     pub const CODE_100_TRYING: StatusCode = StatusCode::Trying;
     pub const CODE_180_RINGING: StatusCode = StatusCode::Ringing;
@@ -289,13 +289,13 @@ pub mod transaction {
     pub struct SendRequestContext {
         pub endpoint: Endpoint,
         pub request: Request,
-        pub transport: Transport,
+        pub transport: TransportHandle,
         pub destination: SocketAddr,
     }
 
     impl SendRequestContext {
         pub async fn setup(method: SipMethod) -> Self {
-            let transport = Transport::new(MockTransport::new_udp());
+            let transport = TransportHandle::new(MockTransport::new_udp());
 
             let endpoint = create_test_endpoint().await;
             let incoming = create_test_request(method, transport.clone());
@@ -330,7 +330,7 @@ pub mod transaction {
         }
 
         async fn new(method: SipMethod, transport: MockTransport) -> Self {
-            let transport_impl = Transport::new(transport.clone());
+            let transport_impl = TransportHandle::new(transport.clone());
             let timer = TestTimer::new();
 
             let endpoint = create_test_endpoint().await;
@@ -398,7 +398,7 @@ pub mod transaction {
         }
 
         async fn new(method: SipMethod, transport: MockTransport) -> Self {
-            let transport_impl = Transport::new(transport.clone());
+            let transport_impl = TransportHandle::new(transport.clone());
 
             let endpoint = create_test_endpoint().await;
             let request = create_test_request(method, transport_impl);

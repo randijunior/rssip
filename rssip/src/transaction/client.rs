@@ -13,7 +13,7 @@ use crate::transaction::Role;
 use crate::transaction::fsm::{State, StateMachine};
 use crate::transaction::manager::TransactionKey;
 use crate::transaction::timers::{T1, T4};
-use crate::transport::Transport;
+use crate::transport::TransportHandle;
 use crate::transport::incoming::{IncomingMessage, IncomingResponse};
 use crate::transport::outgoing::OutgoingRequest;
 use crate::{Endpoint, Result, find_map_mut_header};
@@ -38,7 +38,7 @@ impl ClientTransaction {
     pub(crate) async fn send_request_with_target(
         request: Request,
         endpoint: Endpoint,
-        target: (Transport, SocketAddr),
+        target: (TransportHandle, SocketAddr),
     ) -> Result<Self> {
         Self::send(request, endpoint, Some(target)).await
     }
@@ -46,7 +46,7 @@ impl ClientTransaction {
     async fn send(
         request: Request,
         endpoint: Endpoint,
-        target: Option<(Transport, SocketAddr)>,
+        target: Option<(TransportHandle, SocketAddr)>,
     ) -> Result<Self> {
         let method = request.req_line.method;
         assert_ne!(

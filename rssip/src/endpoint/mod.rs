@@ -29,7 +29,7 @@ use crate::transport::incoming::{IncomingRequest, IncomingResponse, MandatoryHea
 use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
 };
-use crate::transport::{Transport, TransportLayer};
+use crate::transport::{TransportHandle, TransportLayer};
 
 struct EndpointInner {
     /// The transport layer for the endpoint.
@@ -417,7 +417,7 @@ impl Endpoint {
     pub(crate) async fn create_outgoing_request(
         &self,
         mut request: Request,
-        target: Option<(Transport, SocketAddr)>,
+        target: Option<(TransportHandle, SocketAddr)>,
     ) -> Result<OutgoingRequest> {
         let (transport, socket_addr) = 'label: {
             if let Some(target) = target {
