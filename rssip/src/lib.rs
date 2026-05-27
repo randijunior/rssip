@@ -12,6 +12,7 @@ pub mod macros;
 pub mod message;
 pub(crate) mod parser;
 pub mod resolver;
+pub mod session;
 pub mod transaction;
 pub(crate) mod transport;
 

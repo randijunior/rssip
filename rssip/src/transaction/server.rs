@@ -67,9 +67,14 @@ impl ServerTransaction {
         };
 
         log::trace!(
-            "Server transaction created [{:#?}] ({:p})",
+            "Server transaction created [{:#?}] ({})",
             method,
-            &server_tsx
+            server_tsx
+                .request
+                .incoming_info
+                .mandatory_headers
+                .call_id
+                .id()
         );
 
         server_tsx
@@ -257,12 +262,8 @@ impl ServerTransaction {
         &self.transaction_key
     }
 
-    pub(crate) fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
     pub(crate) fn get_entry(&self) -> TransactionEntry {
-        self.endpoint()
+        self.endpoint
             .tsx_plugin()
             .get_entry(self.key())
             .expect("must exists while server tsx is not dropped")
@@ -344,6 +345,11 @@ impl Drop for ServerTransaction {
         self.endpoint
             .tsx_plugin()
             .remove_transaction(&self.transaction_key);
+        log::trace!(
+            "Server transaction destroyed [{:#?}] ({})",
+            self.request.req_line.method,
+            self.request.incoming_info.mandatory_headers.call_id.id()
+        );
     }
 }
 

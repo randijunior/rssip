@@ -1,5 +1,5 @@
 [workspace]
-members = ["rssip-utils", "examples", "rssip-sdp", "rssip", "rssip-ua"]
+members = ["rssip-utils", "examples", "rssip-sdp", "rssip"]
 
 resolver = "2"
 

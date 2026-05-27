@@ -12,7 +12,6 @@ impl std::convert::From<Utf8Error> for Error {
     }
 }
 
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
@@ -50,7 +49,6 @@ pub enum Error {
 
     #[error("error: {0}")]
     Other(String),
-
 }
 
 impl Error {

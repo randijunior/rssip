@@ -64,9 +64,7 @@ impl WebSocketTransport {
         let (stream, _response) = tokio::time::timeout(timeout, connect_async(request))
             .await
             .map_err(|e| IoError::new(IoErrorKind::TimedOut, e))?
-            .map_err(|e| {
-                crate::Error::Transport(format!("WebSocket Connection failed {e}!"))
-            })?;
+            .map_err(|e| crate::Error::Transport(format!("WebSocket Connection failed {e}!")))?;
 
         let (local_addr, peer_addr) = match stream.get_ref() {
             MaybeTlsStream::Plain(tcp_stream) => {
