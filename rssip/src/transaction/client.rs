@@ -317,7 +317,7 @@ mod tests {
 
         let opt_err = ctx.client.receive_provisional_response().await.err();
 
-        assert_matches!(
+        std::assert_matches!(
             opt_err,
             Some(Error::Transaction(TransactionError::Timeout)),
             "Expected Transaction::Timeout, got {opt_err:?}"
@@ -445,7 +445,7 @@ mod tests {
 
         let opt_err = ctx.client.receive_provisional_response().await.err();
 
-        assert_matches!(
+        std::assert_matches!(
             opt_err,
             Some(Error::Transaction(TransactionError::Timeout)),
             "Expected Transaction::Timeout, got {opt_err:?}"
@@ -871,7 +871,7 @@ mod tests {
 
         let opt_err = ctx.client.receive_provisional_response().await.err();
 
-        assert_matches!(
+        std::assert_matches!(
             opt_err,
             Some(Error::Transaction(TransactionError::Timeout)),
             "Expected Transaction::Timeout, got {opt_err:?}"
@@ -1088,7 +1088,7 @@ mod tests {
 
         let opt_err = ctx.client.receive_provisional_response().await.err();
 
-        assert_matches!(
+        std::assert_matches!(
             opt_err,
             Some(Error::Transaction(TransactionError::Timeout)),
             "Expected Transaction::Timeout, got {opt_err:?}"

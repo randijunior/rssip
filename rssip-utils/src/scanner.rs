@@ -451,7 +451,7 @@ mod tests {
     fn scan_while_as_str_fails_on_invalid_utf8() {
         let mut scanner = Scanner::new(&[0xff, 0xff]);
         let err = scanner.scan_while_as_str(|_| true).unwrap_err();
-        assert_matches::assert_matches!(err.kind, ScannerErrorKind::InvalidUtf8(_));
+        std::assert_matches!(err.kind, ScannerErrorKind::InvalidUtf8(_));
     }
 
     #[test]

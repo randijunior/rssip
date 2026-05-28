@@ -26,10 +26,6 @@ pub mod utils {
 }
 
 #[cfg(test)]
-#[macro_use]
-extern crate assert_matches;
-
-#[cfg(test)]
 pub(crate) mod test_utils;
 
 use std::fmt::{self, Debug};

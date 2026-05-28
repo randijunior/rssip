@@ -23,7 +23,6 @@ tokio = { version = "1.41.1", features = [
 ] }
 thiserror = "2.0.12"
 bytes = "1"
-assert_matches = "1.5"
 
 [profile.release]
 opt-level = 3
