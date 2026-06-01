@@ -4,7 +4,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 use tokio::sync::mpsc::{self};
 
 use super::Role;
-use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
+use crate::endpoint::{self, ToTake};
 use crate::message::method::SipMethod;
 use crate::message::sip_uri::HostPort;
 use crate::transport::incoming::{
@@ -56,14 +56,14 @@ impl endpoint::Plugin for TsxPlugin {
         "tsx"
     }
 
-    async fn on_receive_request(&self, mut request: ReceivedRequest<'_>, _: &Endpoint) {
-        let key = TransactionKey::from_request(&request);
+    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, _: &Endpoint) {
+        let key = TransactionKey::from_request(&req);
 
         let Some(channel) = self.get_entry(&key) else {
             return;
         };
 
-        let request = request.take();
+        let request = req.take();
 
         channel
             .send(IncomingMessage::Request(request))
@@ -71,14 +71,14 @@ impl endpoint::Plugin for TsxPlugin {
             .unwrap();
     }
 
-    async fn on_receive_response(&self, mut response: ReceivedResponse<'_>, _endpoint: &Endpoint) {
-        let key = TransactionKey::from_response(&response);
+    async fn on_incoming_response(&self, mut res: ToTake<'_, IncomingResponse>, _: &Endpoint) {
+        let key = TransactionKey::from_response(&res);
 
         let Some(channel) = self.get_entry(&key) else {
             return;
         };
 
-        let response = response.take();
+        let response = res.take();
 
         let _res = channel.send(IncomingMessage::Response(response)).await;
     }

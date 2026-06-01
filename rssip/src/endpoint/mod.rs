@@ -11,11 +11,11 @@ use std::sync::Arc;
 
 pub use builder::EndpointBuilder;
 use bytes::Bytes;
-pub use plugin::{Plugin, ReceivedRequest, ReceivedResponse};
+pub use plugin::{Plugin, ToTake};
 
+use self::plugin::Plugins;
 use crate::Result;
 use crate::dialog::DialogPlugin;
-use crate::endpoint::plugin::Plugins;
 use crate::error::Error;
 use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
 use crate::message::method::SipMethod;
@@ -198,14 +198,6 @@ impl Endpoint {
         }
     }
 
-    pub async fn send_request(&self, request: Request) -> Result<ClientTransaction> {
-        ClientTransaction::send_request(request, self.clone()).await
-    }
-
-    pub fn accept_request(&self, request: IncomingRequest) -> ServerTransaction {
-        ServerTransaction::from_request(request, self.clone())
-    }
-
     /// Send the request.
     pub async fn send_outgoing_request(&self, request: &mut OutgoingRequest) -> Result<()> {
         if request.encoded.is_empty() {
@@ -220,7 +212,7 @@ impl Endpoint {
         );
 
         for plugin in self.inner.plugins.plugins() {
-            plugin.on_send_request(request).await;
+            plugin.on_outgoing_request(request).await;
         }
 
         if let Err(err) = request
@@ -247,7 +239,7 @@ impl Endpoint {
         );
 
         for plugin in self.inner.plugins.plugins() {
-            plugin.on_send_response(response).await;
+            plugin.on_outgoing_response(response).await;
         }
 
         self.send_response(response).await?;
@@ -478,7 +470,7 @@ impl Endpoint {
 
         for plugin in self.inner.plugins.plugins() {
             plugin
-                .on_receive_response(ReceivedResponse::new(&mut response), self)
+                .on_incoming_response(ToTake::new(&mut response), self)
                 .await;
 
             if response.is_none() {
@@ -507,7 +499,7 @@ impl Endpoint {
 
         for plugin in self.inner.plugins.plugins() {
             plugin
-                .on_receive_request(ReceivedRequest::new(&mut request), self)
+                .on_incoming_request(ToTake::new(&mut request), self)
                 .await;
 
             if request.is_none() {

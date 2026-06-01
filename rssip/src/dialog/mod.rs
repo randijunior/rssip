@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use rustc_hash::FxHashMap;
 use tokio::sync::mpsc;
 
-use crate::endpoint::{self, ReceivedRequest, ReceivedResponse};
+use crate::endpoint::{self, ToTake};
 use crate::error::{Error, Result};
 use crate::message::headers::{CallId, Contact, From, Header, Headers, To};
 use crate::message::method::SipMethod;
@@ -12,7 +12,7 @@ use crate::message::sip_uri::{Scheme, Uri};
 use crate::message::status_code::StatusCode;
 use crate::transaction::{Role, ServerTransaction};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};
-use crate::{Endpoint, OutgoingResponse, find_map_mut_header};
+use crate::{Endpoint, IncomingResponse, OutgoingResponse, find_map_mut_header};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogState {
@@ -205,12 +205,12 @@ impl endpoint::Plugin for DialogPlugin {
         "dialog"
     }
 
-    async fn on_receive_request(&self, mut request: ReceivedRequest<'_>, endpoint: &Endpoint) {
-        let Some(dialog_id) = DialogId::from_incoming_request(&request) else {
+    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, endpoint: &Endpoint) {
+        let Some(dialog_id) = DialogId::from_incoming_request(&req) else {
             return;
         };
 
-        let request = request.take();
+        let request = req.take();
 
         let Some(channel) = self.get_dialog(&dialog_id) else {
             if request.req_line.method != SipMethod::Ack {
@@ -235,7 +235,8 @@ impl endpoint::Plugin for DialogPlugin {
         }
     }
 
-    async fn on_receive_response(&self, _response: ReceivedResponse<'_>, _endpoint: &Endpoint) {}
+    async fn on_incoming_response(&self, _res: ToTake<'_, IncomingResponse>, _endpoint: &Endpoint) {
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

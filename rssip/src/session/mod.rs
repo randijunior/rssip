@@ -25,7 +25,7 @@ impl InviteSession<Incoming> {
         endpoint: Endpoint,
     ) -> Result<Self> {
         let dialog = Dialog::create_uas(endpoint.clone(), &request, contact)?;
-        let server_tsx = endpoint.accept_request(request);
+        let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
 
         Ok(InviteSession {
             dialog,
@@ -63,7 +63,7 @@ impl InviteSession<Incoming> {
 
 impl InviteSession<Established> {
     async fn handle_bye(&mut self, bye: IncomingRequest) -> Result<()> {
-        let bye_tsx = self.endpoint.accept_request(bye);
+        let bye_tsx = ServerTransaction::from_request(bye, self.endpoint.clone());
 
         let response = self.dialog.create_response(&bye_tsx, StatusCode::Ok);
 

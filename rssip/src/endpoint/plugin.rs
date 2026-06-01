@@ -9,18 +9,19 @@ use crate::transport::outgoing::{OutgoingRequest, OutgoingResponse};
 
 /// A trait for endpoint plugin.
 #[async_trait::async_trait]
-pub trait Plugin: Downcast + Send + Sync + 'static {
+pub trait Plugin: Downcast + Send + Sync {
     fn name(&self) -> &'static str;
 
     fn on_load(&mut self, _builder: &mut EndpointBuilder) {}
 
-    async fn on_receive_request(&self, _request: ReceivedRequest<'_>, _endpoint: &Endpoint) {}
+    async fn on_incoming_request(&self, _req: ToTake<'_, IncomingRequest>, _endpoint: &Endpoint) {}
 
-    async fn on_receive_response(&self, _response: ReceivedResponse<'_>, _endpoint: &Endpoint) {}
+    async fn on_incoming_response(&self, _res: ToTake<'_, IncomingResponse>, _endpoint: &Endpoint) {
+    }
 
-    async fn on_send_request(&self, _request: &mut OutgoingRequest) {}
+    async fn on_outgoing_request(&self, _req: &mut OutgoingRequest) {}
 
-    async fn on_send_response(&self, _request: &mut OutgoingResponse) {}
+    async fn on_outgoing_response(&self, _res: &mut OutgoingResponse) {}
 }
 
 impl_downcast!(Plugin);
@@ -29,10 +30,6 @@ impl_downcast!(Plugin);
 pub struct Plugins {
     plugins: Vec<Box<dyn Plugin>>,
 }
-
-pub struct ReceivedRequest<'r>(ToTake<'r, IncomingRequest>);
-
-pub struct ReceivedResponse<'r>(ToTake<'r, IncomingResponse>);
 
 pub struct ToTake<'a, T: 'a> {
     inner: &'a mut Option<T>,
@@ -53,46 +50,6 @@ impl Plugins {
 
     pub fn add_plugin<M: Plugin>(&mut self, plugin: M) {
         self.plugins.push(Box::new(plugin));
-    }
-}
-
-impl<'r> ReceivedRequest<'r> {
-    pub(crate) fn new(request: &'r mut Option<IncomingRequest>) -> Self {
-        Self(ToTake::new(request))
-    }
-}
-
-impl<'r> ops::Deref for ReceivedRequest<'r> {
-    type Target = ToTake<'r, IncomingRequest>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'r> ops::DerefMut for ReceivedRequest<'r> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'r> ReceivedResponse<'r> {
-    pub(crate) fn new(response: &'r mut Option<IncomingResponse>) -> Self {
-        Self(ToTake::new(response))
-    }
-}
-
-impl<'r> ops::Deref for ReceivedResponse<'r> {
-    type Target = ToTake<'r, IncomingResponse>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'r> ops::DerefMut for ReceivedResponse<'r> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
