@@ -1,9 +1,9 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// An SIP Method.
 ///
-/// This enum declares SIP methods as described by `RFC3261` and Others.
+/// This enum declares SIP methods as described by `RFC3261` and others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SipMethod {
     /// SIP INVITE Method.
     Invite,
@@ -38,33 +38,36 @@ pub enum SipMethod {
 }
 
 impl SipMethod {
-    pub fn is_invite(&self) -> bool {
-        matches!(self, Self::Invite)
-    }
-
-    pub fn is_ack(&self) -> bool {
-        matches!(self, Self::Ack)
+    pub fn can_establish_dialog(self) -> bool {
+        matches!(
+            self,
+            Self::Invite
+                | Self::Subscribe
+                | Self::Refer
+                | Self::Notify
+                | Self::Update
+        )
     }
 
     /// Returns the string representation of a method.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
-            SipMethod::Invite => "INVITE",
-            SipMethod::Ack => "ACK",
-            SipMethod::Bye => "BYE",
-            SipMethod::Cancel => "CANCEL",
-            SipMethod::Register => "REGISTER",
-            SipMethod::Options => "OPTIONS",
-            SipMethod::Info => "INFO",
-            SipMethod::Notify => "NOTIFY",
-            SipMethod::Subscribe => "SUBSCRIBE",
-            SipMethod::Update => "UPDATE",
-            SipMethod::Refer => "REFER",
-            SipMethod::Prack => "PRACK",
-            SipMethod::Message => "MESSAGE",
-            SipMethod::Publish => "PUBLISH",
-            SipMethod::Unknown => "UNKNOWN-SipMethod",
+            Self::Invite => "INVITE",
+            Self::Ack => "ACK",
+            Self::Bye => "BYE",
+            Self::Cancel => "CANCEL",
+            Self::Register => "REGISTER",
+            Self::Options => "OPTIONS",
+            Self::Info => "INFO",
+            Self::Notify => "NOTIFY",
+            Self::Subscribe => "SUBSCRIBE",
+            Self::Update => "UPDATE",
+            Self::Refer => "REFER",
+            Self::Prack => "PRACK",
+            Self::Message => "MESSAGE",
+            Self::Publish => "PUBLISH",
+            Self::Unknown => "UNKNOWN-SipMethod",
         }
     }
 }

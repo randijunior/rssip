@@ -43,16 +43,9 @@ impl Dialog {
         request: &IncomingRequest,
         contact: Contact,
     ) -> Result<Dialog> {
-        if !matches!(
-            request.req_line.method,
-            SipMethod::Invite
-                | SipMethod::Subscribe
-                | SipMethod::Refer
-                | SipMethod::Notify
-                | SipMethod::Update
-        ) {
+        if !request.req_line.method.can_establish_dialog() {
             return Err(Error::Dialog(format!(
-                "The {} method cannot establish a dialog",
+                "The sip method '{}' cannot establish a dialog",
                 request.req_line.method
             )));
         }

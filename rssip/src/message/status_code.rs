@@ -14,7 +14,7 @@ pub enum StatusCode {
     CallIsBeingForwarded = 181,
     ///`Queued` status code.
     Queued = 182,
-    ///`InvSession Progress` status code.
+    ///`Session Progress` status code.
     SessionProgress = 183,
     ///`Early Dialog Terminated` status code.
     EarlyDialogTerminated = 199,
@@ -74,7 +74,7 @@ pub enum StatusCode {
     BadExtension = 420,
     ///`Extension Required` status code.
     ExtensionRequired = 421,
-    ///`InvSession Timer Too Small` status code.
+    ///`Session Timer Too Small` status code.
     SessionIntervalTooSmall = 422,
     ///`Interval Too Brief` status code.
     IntervalTooBrief = 423,
