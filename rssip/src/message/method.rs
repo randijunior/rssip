@@ -41,11 +41,7 @@ impl SipMethod {
     pub fn can_establish_dialog(self) -> bool {
         matches!(
             self,
-            Self::Invite
-                | Self::Subscribe
-                | Self::Refer
-                | Self::Notify
-                | Self::Update
+            Self::Invite | Self::Subscribe | Self::Refer | Self::Notify | Self::Update
         )
     }
 

@@ -1,13 +1,15 @@
+use tokio::time;
+use tokio_util::either::Either;
+
 use crate::dialog::{Dialog, DialogState};
 use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
-use crate::transaction::{Role, ServerTransaction};
+use crate::transaction::{ServerTransaction, timers};
 use crate::{Endpoint, IncomingMessage, IncomingRequest, Result};
 
 pub struct InviteSession<State> {
     state: State,
-    role: Role,
     dialog: Dialog,
     endpoint: Endpoint,
 }
@@ -16,22 +18,23 @@ pub struct Incoming {
     server_tsx: ServerTransaction,
 }
 
-pub struct Established;
+pub struct Accepted {
+    ack: Option<IncomingRequest>,
+    terminated: bool,
+}
 
 impl InviteSession<Incoming> {
-    pub fn incoming(
+    pub fn create_incoming(
         request: IncomingRequest,
         contact: Contact,
         endpoint: Endpoint,
     ) -> Result<Self> {
         let dialog = Dialog::create_uas(endpoint.clone(), &request, contact)?;
         let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
-
         Ok(InviteSession {
             dialog,
-            state: Incoming { server_tsx },
-            role: Role::Uas,
             endpoint,
+            state: Incoming { server_tsx },
         })
     }
 
@@ -46,22 +49,72 @@ impl InviteSession<Incoming> {
         Ok(())
     }
 
-    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Established>> {
+    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Accepted>> {
         let Incoming { server_tsx } = self.state;
 
         let response = self.dialog.create_response(&server_tsx, status_code);
         server_tsx.send_final_response(response).await?;
 
         Ok(InviteSession {
-            state: Established,
-            role: self.role,
+            state: Accepted {
+                ack: None,
+                terminated: false,
+            },
             dialog: self.dialog,
             endpoint: self.endpoint,
         })
     }
 }
 
-impl InviteSession<Established> {
+impl InviteSession<Accepted> {
+    pub async fn receive(&mut self) -> Result<Option<SessionEvent>> {
+        if self.state.terminated {
+            return Ok(None);
+        };
+        loop {
+            let ack_timer = if self.state.ack.is_some() {
+                Either::Left(std::future::pending())
+            } else {
+                Either::Right(time::sleep(timers::T1 * 64))
+            };
+            tokio::pin!(ack_timer);
+
+            tokio::select! {
+                msg = self.dialog.recv() => {
+                    match msg {
+                        Ok(Some(IncomingMessage::Request(request))) => match request.req_line.method {
+                            SipMethod::Invite => return Ok(Some(SessionEvent::ReInvite(request))),
+                            SipMethod::Bye => {
+                                self.handle_bye(request).await?;
+                                self.state.terminated = true;
+                                return Ok(Some(SessionEvent::Terminated(Cause::ByeReceived)));
+                            }
+                            SipMethod::Ack => {
+                                self.state.ack = Some(request);
+                                continue;
+                            }
+                            method => {
+                                log::info!("received other request: {}", method);
+                                continue;
+                            }
+                        },
+                        Ok(None) =>  {
+                            self.state.terminated = true;
+                            return Ok(None)
+                        },
+                        Err(err) => return Err(err),
+                        Ok(Some(IncomingMessage::Response(_incoming_response))) => unimplemented!(),
+                    }
+                }
+                _ = &mut ack_timer => {
+                    log::warn!("no ACK received, terminating the session");
+                    self.state.terminated = true;
+                    return Ok(Some(SessionEvent::Terminated(Cause::NoACK)));
+                }
+            }
+        }
+    }
+
     async fn handle_bye(&mut self, bye: IncomingRequest) -> Result<()> {
         let bye_tsx = ServerTransaction::from_request(bye, self.endpoint.clone());
 
@@ -71,30 +124,18 @@ impl InviteSession<Established> {
 
         Ok(())
     }
-    pub async fn recv(&mut self) -> Option<SessionEvent> {
-        loop {
-            match self.dialog.recv().await? {
-                IncomingMessage::Request(request) => match request.req_line.method {
-                    SipMethod::Invite => break Some(SessionEvent::ReInvite(request)),
-                    SipMethod::Bye => {
-                        let _res = self.handle_bye(request).await;
-                        break Some(SessionEvent::Terminated);
-                    }
-                    method => {
-                        log::info!("received other request: {}", method);
-                        continue;
-                    }
-                },
-                IncomingMessage::Response(incoming_response) => todo!(),
-            }
-        }
-    }
 }
 
 pub enum SessionEvent {
-    Terminated,
+    Terminated(Cause),
     ReInvite(IncomingRequest),
     Options(IncomingRequest),
+}
+
+#[derive(Debug)]
+pub enum Cause {
+    NoACK,
+    ByeReceived,
 }
 
 #[cfg(test)]
@@ -117,13 +158,11 @@ mod tests {
         let req = create_test_invite();
         let contact = "test <sip:localhost:5969>".parse().unwrap();
 
-        let mut session = InviteSession::incoming(req, contact, endpoint).unwrap();
+        let mut session = InviteSession::create_incoming(req, contact, endpoint).unwrap();
 
         session.progress(StatusCode::Trying).await.unwrap();
         session.progress(StatusCode::Ringing).await.unwrap();
 
-        let mut session = session.accept(StatusCode::Ok).await.unwrap();
-
-        while let Some(evt) = session.recv().await {}
+        let _session = session.accept(StatusCode::Ok).await.unwrap();
     }
 }

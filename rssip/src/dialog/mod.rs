@@ -125,30 +125,31 @@ impl Dialog {
         response
     }
 
-    pub async fn recv(&mut self) -> Option<IncomingMessage> {
-        let msg = self.receiver.recv().await?;
+    pub async fn recv(&mut self) -> Result<Option<IncomingMessage>> {
+        let Some(msg) = self.receiver.recv().await else {
+            return Ok(None);
+        };
 
         if let IncomingMessage::Request(incoming_request) = &msg {
-            self.process_incoming_request(incoming_request).await;
+            self.process_incoming_request(incoming_request).await?;
         }
 
-        Some(msg)
+        Ok(Some(msg))
     }
 
-    async fn process_incoming_request(&mut self, request: &IncomingRequest) {
+    async fn process_incoming_request(&mut self, request: &IncomingRequest) -> Result<()> {
         let request_cseq = request.incoming_info.mandatory_headers.cseq.cseq();
 
         if !matches!(request.req_line.method, SipMethod::Cancel | SipMethod::Ack)
             && request_cseq <= self.remote_cseq
         {
             let mut response = self.endpoint.create_outgoing_response(
-                &request,
+                request,
                 StatusCode::ServerInternalError,
                 Some("Invalid Cseq".into()),
             );
-            if let Err(err) = self.endpoint.send_outgoing_response(&mut response).await {
-                log::error!("Error sending response = {err:?}");
-            }
+            self.endpoint.send_outgoing_response(&mut response).await?;
+            return Ok(());
         }
 
         self.remote_cseq = request_cseq;
@@ -156,6 +157,8 @@ impl Dialog {
         if request.req_line.method == SipMethod::Ack && self.state != DialogState::Confirmed {
             self.state = DialogState::Confirmed;
         }
+
+        Ok(())
     }
 
     pub(crate) fn set_state(&mut self, dialog_state: DialogState) {
