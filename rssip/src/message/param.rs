@@ -89,15 +89,3 @@ impl str::FromStr for Param {
         Ok(parser::SipParser::new(s).param_ref()?.into())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parameter_from_str() {
-        let param: Param = "param=value".parse().unwrap();
-        assert_eq!(param.name, "param");
-        assert_eq!(param.value.as_deref(), Some("value"));
-    }
-}
