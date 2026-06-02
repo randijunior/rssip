@@ -164,6 +164,10 @@ impl Dialog {
     pub(crate) fn set_state(&mut self, dialog_state: DialogState) {
         self.state = dialog_state;
     }
+
+    pub fn id(&self) -> &DialogId {
+        &self.dialog_id
+    }
 }
 
 #[derive(Default)]

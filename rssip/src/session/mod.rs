@@ -86,7 +86,7 @@ impl InviteSession<Accepted> {
                             SipMethod::Invite => return Ok(Some(SessionEvent::ReInvite(request))),
                             SipMethod::Bye => {
                                 self.handle_bye(request).await?;
-                                self.state.terminated = true;
+                                self.terminate();
                                 return Ok(Some(SessionEvent::Terminated(Cause::ByeReceived)));
                             }
                             SipMethod::Ack => {
@@ -94,21 +94,24 @@ impl InviteSession<Accepted> {
                                 continue;
                             }
                             method => {
-                                log::info!("received other request: {}", method);
+                                log::debug!("received request: {} (ignoring)", method);
                                 continue;
                             }
                         },
+                        Ok(Some(IncomingMessage::Response(_incoming_response))) => unimplemented!(),
                         Ok(None) =>  {
-                            self.state.terminated = true;
+                            self.terminate();
                             return Ok(None)
                         },
-                        Err(err) => return Err(err),
-                        Ok(Some(IncomingMessage::Response(_incoming_response))) => unimplemented!(),
+                        Err(err) =>  {
+                            self.terminate();
+                            return Err(err);
+                        },
                     }
                 }
                 _ = &mut ack_timer => {
                     log::warn!("no ACK received, terminating the session");
-                    self.state.terminated = true;
+                    self.terminate();
                     return Ok(Some(SessionEvent::Terminated(Cause::NoACK)));
                 }
             }
@@ -123,6 +126,11 @@ impl InviteSession<Accepted> {
         bye_tsx.send_final_response(response).await?;
 
         Ok(())
+    }
+
+    fn terminate(&mut self) {
+        self.state.terminated = true;
+        self.endpoint.ua_plugin().remove_dialog(self.dialog.id());
     }
 }
 
