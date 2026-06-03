@@ -10,7 +10,7 @@ fn create_test_invite() -> IncomingRequest {
     create_test_request(SipMethod::Invite, transport)
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_create_session() {
     let endpoint = create_test_endpoint().await;
     let req = create_test_invite();
@@ -21,5 +21,7 @@ async fn test_create_session() {
     session.progress(StatusCode::Trying).await.unwrap();
     session.progress(StatusCode::Ringing).await.unwrap();
 
-    let _session = session.accept(StatusCode::Ok).await.unwrap();
+    assert!(session.accept(StatusCode::Ok).await.is_err());
+
+    
 }

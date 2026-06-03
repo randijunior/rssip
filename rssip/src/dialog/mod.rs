@@ -164,9 +164,11 @@ impl Dialog {
     pub(crate) fn set_state(&mut self, dialog_state: DialogState) {
         self.state = dialog_state;
     }
+}
 
-    pub fn id(&self) -> &DialogId {
-        &self.dialog_id
+impl Drop for Dialog {
+    fn drop(&mut self) {
+        self.endpoint.ua_plugin().remove_dialog(&self.dialog_id);
     }
 }
 
