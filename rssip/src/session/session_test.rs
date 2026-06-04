@@ -22,6 +22,4 @@ async fn test_create_session() {
     session.progress(StatusCode::Ringing).await.unwrap();
 
     assert!(session.accept(StatusCode::Ok).await.is_err());
-
-    
 }

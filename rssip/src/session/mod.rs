@@ -2,6 +2,7 @@
 mod session_test;
 
 use tokio::sync::mpsc;
+use tokio::time;
 
 use crate::dialog::{Dialog, DialogState};
 use crate::message::headers::Contact;
@@ -9,16 +10,19 @@ use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::{ServerTransaction, timers};
 use crate::{Endpoint, IncomingMessage, IncomingRequest, Result};
-use tokio::time;
 
-pub struct InviteSession<R> {
-    role: R,
-    dialog: Dialog,
-    endpoint: Endpoint,
+pub struct InviteSession<S> {
+    state: S,
 }
 
-pub struct Uas {
+pub struct Incoming {
+    dialog: Dialog,
+    endpoint: Endpoint,
     server_tsx: ServerTransaction,
+}
+
+pub struct Confirmed {
+    rx: mpsc::Receiver<SessionEvent>,
 }
 
 pub enum SessionEvent {
@@ -32,8 +36,7 @@ pub enum Cause {
     ByeReceived,
 }
 
-
-impl InviteSession<Uas> {
+impl InviteSession<Incoming> {
     pub fn create_incoming(
         request: IncomingRequest,
         contact: Contact,
@@ -42,27 +45,35 @@ impl InviteSession<Uas> {
         let dialog = Dialog::create_uas(endpoint.clone(), &request, contact)?;
         let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
         Ok(InviteSession {
-            dialog,
-            endpoint,
-            role: Uas { server_tsx },
+            state: Incoming {
+                server_tsx,
+                dialog,
+                endpoint,
+            },
         })
     }
 
     pub async fn progress(&mut self, status_code: StatusCode) -> Result<()> {
-        let Uas { server_tsx } = &mut self.role;
+        let Incoming {
+            server_tsx, dialog, ..
+        } = &mut self.state;
 
-        let response = self.dialog.create_response(&server_tsx, status_code);
+        let response = dialog.create_response(&server_tsx, status_code);
         server_tsx.send_provisional_response(response).await?;
 
-        self.dialog.set_state(DialogState::Early);
+        dialog.set_state(DialogState::Early);
 
         Ok(())
     }
 
-    pub async fn accept(mut self, status_code: StatusCode) -> Result<mpsc::Receiver<SessionEvent>> {
-        let Uas { server_tsx } = self.role;
+    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Confirmed>> {
+        let Incoming {
+            server_tsx,
+            mut dialog,
+            endpoint,
+        } = self.state;
 
-        let response = self.dialog.create_response(&server_tsx, status_code);
+        let response = dialog.create_response(&server_tsx, status_code);
         server_tsx.send_final_response(response).await?;
 
         let ack_timer = time::sleep(timers::T1 * 64);
@@ -70,7 +81,7 @@ impl InviteSession<Uas> {
 
         loop {
             tokio::select! {
-                msg = self.dialog.recv() => {
+                msg = dialog.recv() => {
                     match msg {
                         Ok(Some(IncomingMessage::Request(req))) if req.req_line.method == SipMethod::Ack => {
                             break;
@@ -98,7 +109,7 @@ impl InviteSession<Uas> {
 
         tokio::spawn(async move {
             loop {
-                let Ok(Some(msg)) = self.dialog.recv().await else {
+                let Ok(Some(msg)) = dialog.recv().await else {
                     break;
                 };
                 match msg {
@@ -109,9 +120,9 @@ impl InviteSession<Uas> {
                         }
                         SipMethod::Bye => {
                             let bye_tsx =
-                                ServerTransaction::from_request(request, self.endpoint.clone());
+                                ServerTransaction::from_request(request, endpoint.clone());
 
-                            let response = self.dialog.create_response(&bye_tsx, StatusCode::Ok);
+                            let response = dialog.create_response(&bye_tsx, StatusCode::Ok);
 
                             let _result = bye_tsx.send_final_response(response).await;
                             let _result = tx.send(SessionEvent::Terminated(Cause::ByeReceived));
@@ -128,6 +139,15 @@ impl InviteSession<Uas> {
             }
         });
 
-        Ok(rx)
+        Ok(InviteSession {
+            state: Confirmed { rx },
+        })
+    }
+}
+
+
+impl InviteSession<Confirmed> {
+    pub async fn recv(&mut self) -> Option<SessionEvent> {
+        self.state.rx.recv().await
     }
 }
