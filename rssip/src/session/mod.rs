@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod session_test;
 
+use std::ops;
+
 use tokio::sync::mpsc;
 use tokio::time;
 
@@ -9,7 +11,7 @@ use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::{ServerTransaction, timers};
-use crate::{Endpoint, IncomingMessage, IncomingRequest, Result};
+use crate::{Endpoint, IncomingRequest, Result};
 
 pub struct InviteSession<S> {
     state: S,
@@ -21,19 +23,13 @@ pub struct Incoming {
     server_tsx: ServerTransaction,
 }
 
+pub struct Accepted {
+    dialog: Dialog,
+    endpoint: Endpoint,
+}
+
 pub struct Confirmed {
     rx: mpsc::Receiver<SessionEvent>,
-}
-
-pub enum SessionEvent {
-    Terminated(Cause),
-    ReInvite(IncomingRequest),
-    Options(IncomingRequest),
-}
-
-#[derive(Debug)]
-pub enum Cause {
-    ByeReceived,
 }
 
 impl InviteSession<Incoming> {
@@ -66,54 +62,56 @@ impl InviteSession<Incoming> {
         Ok(())
     }
 
-    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Confirmed>> {
+    pub async fn accept(self, status_code: StatusCode) -> Result<InviteSession<Accepted>> {
         let Incoming {
             server_tsx,
-            mut dialog,
+            dialog,
             endpoint,
         } = self.state;
 
         let response = dialog.create_response(&server_tsx, status_code);
         server_tsx.send_final_response(response).await?;
 
-        let ack_timer = time::sleep(timers::T1 * 64);
-        tokio::pin!(ack_timer);
+        Ok(InviteSession {
+            state: Accepted { dialog, endpoint },
+        })
+    }
+}
 
+impl InviteSession<Accepted> {
+    async fn recv_ack(&mut self) -> Result<IncomingRequest> {
+        let ack_timer = timers::T1 * 64;
         loop {
-            tokio::select! {
-                msg = dialog.recv() => {
-                    match msg {
-                        Ok(Some(IncomingMessage::Request(req))) if req.req_line.method == SipMethod::Ack => {
-                            break;
-                        },
-                        Ok(Some(IncomingMessage::Request(req))) => {
-                            log::debug!("received request: {} (ignoring)", req.req_line.method);
-                            continue;
-                        }
-                        Err(err)=> {
-                            return Err(err);
-                        },
-                        Ok(None) =>  { return Err(crate::Error::ChannelClosed); },
-                        _=>  {
-                            continue;
-                        }
-                    }
+            match time::timeout(ack_timer, self.state.dialog.recv_request()).await {
+                Ok(Ok(req)) if req.req_line.method == SipMethod::Ack => {
+                    return Ok(req);
                 }
-                _ = &mut ack_timer => {
-                    return Err(crate::Error::Other("No ACK received".into()))
+                Ok(Ok(req)) => {
+                    log::debug!("received request: {} (ignoring)", req.req_line.method);
+                    continue;
                 }
+                Ok(Err(err)) => {
+                    return Err(err);
+                }
+                Err(_elapsed) => return Err(crate::Error::Other("No ACK received".into())),
             }
         }
+    }
+
+    pub async fn wait_for_ack(mut self) -> Result<InviteSession<Confirmed>> {
+        let _ = self.recv_ack().await?;
 
         let (tx, rx) = mpsc::channel::<SessionEvent>(10);
 
         tokio::spawn(async move {
-            loop {
-                let Ok(Some(msg)) = dialog.recv().await else {
-                    break;
-                };
+            let Accepted {
+                mut dialog,
+                endpoint,
+            } = self.state;
+
+            while let Ok(msg) = dialog.recv_request().await {
                 match msg {
-                    IncomingMessage::Request(request) => match request.req_line.method {
+                    request => match request.req_line.method {
                         SipMethod::Invite => {
                             let _result = tx.send(SessionEvent::ReInvite(request));
                             break;
@@ -134,7 +132,6 @@ impl InviteSession<Incoming> {
                             continue;
                         }
                     },
-                    IncomingMessage::Response(_incoming_response) => unimplemented!(),
                 }
             }
         });
@@ -145,9 +142,27 @@ impl InviteSession<Incoming> {
     }
 }
 
+impl ops::Deref for Confirmed {
+    type Target = mpsc::Receiver<SessionEvent>;
 
-impl InviteSession<Confirmed> {
-    pub async fn recv(&mut self) -> Option<SessionEvent> {
-        self.state.rx.recv().await
+    fn deref(&self) -> &Self::Target {
+        &self.rx
     }
+}
+
+impl ops::DerefMut for Confirmed {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.rx
+    }
+}
+
+pub enum SessionEvent {
+    Terminated(Cause),
+    ReInvite(IncomingRequest),
+    Options(IncomingRequest),
+}
+
+#[derive(Debug)]
+pub enum Cause {
+    ByeReceived,
 }

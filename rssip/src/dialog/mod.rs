@@ -125,16 +125,25 @@ impl Dialog {
         response
     }
 
-    pub async fn recv(&mut self) -> Result<Option<IncomingMessage>> {
+    pub async fn recv(&mut self) -> Result<IncomingMessage> {
         let Some(msg) = self.receiver.recv().await else {
-            return Ok(None);
+            return Err(Error::ChannelClosed);
         };
 
         if let IncomingMessage::Request(incoming_request) = &msg {
             self.process_incoming_request(incoming_request).await?;
         }
 
-        Ok(Some(msg))
+        Ok(msg)
+    }
+
+    pub async fn recv_request(&mut self) -> Result<IncomingRequest> {
+        loop {
+            if let IncomingMessage::Request(req) = self.recv().await? {
+                return Ok(req);
+            }
+            continue;
+        }
     }
 
     async fn process_incoming_request(&mut self, request: &IncomingRequest) -> Result<()> {
