@@ -29,6 +29,7 @@ pub struct Accepted {
 }
 
 pub struct Confirmed {
+    ack: IncomingRequest,
     rx: mpsc::Receiver<SessionEvent>,
 }
 
@@ -79,6 +80,59 @@ impl InviteSession<Incoming> {
 }
 
 impl InviteSession<Accepted> {
+    pub async fn wait_for_ack(mut self) -> Result<InviteSession<Confirmed>> {
+        let ack = self.recv_ack().await?;
+
+        let (tx, rx) = mpsc::channel::<SessionEvent>(10);
+
+        tokio::spawn(async move {
+            if let Err(err) = self.handle_message(tx).await {
+                log::warn!("An error occured; error = {:#}", err);
+            }
+        });
+
+        Ok(InviteSession {
+            state: Confirmed { ack, rx },
+        })
+    }
+
+    async fn handle_message(self, tx: mpsc::Sender<SessionEvent>) -> Result<()> {
+        let Accepted {
+            mut dialog,
+            endpoint,
+        } = self.state;
+
+        while let Ok(msg) = dialog.recv_request().await {
+            match msg {
+                request => match request.req_line.method {
+                    SipMethod::Invite => {
+                        tx.send(SessionEvent::ReInvite(request))
+                            .await
+                            .map_err(|_| crate::Error::ChannelClosed)?;
+                        break;
+                    }
+                    SipMethod::Bye => {
+                        let bye_tsx = ServerTransaction::from_request(request, endpoint.clone());
+
+                        let response = dialog.create_response(&bye_tsx, StatusCode::Ok);
+
+                        bye_tsx.send_final_response(response).await?;
+                        tx.send(SessionEvent::Terminated(Cause::ByeReceived))
+                            .await
+                            .map_err(|_| crate::Error::ChannelClosed)?;
+
+                        break;
+                    }
+                    method => {
+                        log::debug!("received request: {} (ignoring)", method);
+                        continue;
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+
     async fn recv_ack(&mut self) -> Result<IncomingRequest> {
         let ack_timer = timers::T1 * 64;
         loop {
@@ -96,49 +150,6 @@ impl InviteSession<Accepted> {
                 Err(_elapsed) => return Err(crate::Error::Other("No ACK received".into())),
             }
         }
-    }
-
-    pub async fn wait_for_ack(mut self) -> Result<InviteSession<Confirmed>> {
-        let _ = self.recv_ack().await?;
-
-        let (tx, rx) = mpsc::channel::<SessionEvent>(10);
-
-        tokio::spawn(async move {
-            let Accepted {
-                mut dialog,
-                endpoint,
-            } = self.state;
-
-            while let Ok(msg) = dialog.recv_request().await {
-                match msg {
-                    request => match request.req_line.method {
-                        SipMethod::Invite => {
-                            let _result = tx.send(SessionEvent::ReInvite(request));
-                            break;
-                        }
-                        SipMethod::Bye => {
-                            let bye_tsx =
-                                ServerTransaction::from_request(request, endpoint.clone());
-
-                            let response = dialog.create_response(&bye_tsx, StatusCode::Ok);
-
-                            let _result = bye_tsx.send_final_response(response).await;
-                            let _result = tx.send(SessionEvent::Terminated(Cause::ByeReceived));
-
-                            break;
-                        }
-                        method => {
-                            log::debug!("received request: {} (ignoring)", method);
-                            continue;
-                        }
-                    },
-                }
-            }
-        });
-
-        Ok(InviteSession {
-            state: Confirmed { rx },
-        })
     }
 }
 
