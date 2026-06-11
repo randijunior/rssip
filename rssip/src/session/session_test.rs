@@ -16,12 +16,10 @@ async fn test_create_session() {
     let req = create_test_invite();
     let contact = "test <sip:localhost:5969>".parse().unwrap();
 
-    let mut incoming = InviteSession::create_incoming(req, contact, endpoint).unwrap();
+    let mut session = Session::init_incoming(req, contact, endpoint).unwrap();
 
-    incoming.progress(StatusCode::Trying).await.unwrap();
-    incoming.progress(StatusCode::Ringing).await.unwrap();
+    session.progress(StatusCode::Trying).await.unwrap();
+    session.progress(StatusCode::Ringing).await.unwrap();
 
-    let accepted = incoming.accept(StatusCode::Ok).await.unwrap();
-    
-    assert!(accepted.wait_for_ack().await.is_err());
+    assert!(session.accept(StatusCode::Ok).await.is_err());
 }

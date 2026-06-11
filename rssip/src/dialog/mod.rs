@@ -39,9 +39,9 @@ pub struct Dialog {
 
 impl Dialog {
     pub fn create_uas(
-        endpoint: Endpoint,
         request: &IncomingRequest,
         contact: Contact,
+        endpoint: Endpoint,
     ) -> Result<Dialog> {
         if !request.req_line.method.can_establish_dialog() {
             return Err(Error::Dialog(format!(
@@ -163,7 +163,7 @@ impl Dialog {
 
         self.remote_cseq = request_cseq;
 
-        if request.req_line.method == SipMethod::Ack && self.state != DialogState::Confirmed {
+        if request.req_line.method == SipMethod::Ack {
             self.state = DialogState::Confirmed;
         }
 
