@@ -11,7 +11,7 @@ use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::{ServerTransaction, timers};
-use crate::{Endpoint, IncomingRequest, Result};
+use crate::{Endpoint, Error, IncomingRequest, Result};
 
 pub enum SessionEvent {
     Terminated(Cause),
@@ -77,18 +77,20 @@ impl Session<Incoming> {
 
         let ack_timer = timers::T1 * 64;
         loop {
-            match time::timeout(ack_timer, dialog.recv_request()).await {
-                Ok(Ok(req)) if req.req_line.method == SipMethod::Ack => {
+            match time::timeout(ack_timer, dialog.recv_request())
+                .await
+                .map_err(|_elapsed| Error::Other("No ACK received".into()))??
+            {
+                req if req.req_line.method == SipMethod::Ack => {
                     break;
                 }
-                Ok(Ok(req)) => {
-                    log::debug!("received request: {} (ignoring)", req.req_line.method);
+                req => {
+                    log::debug!(
+                        "received request(NoAck): {} (ignoring)",
+                        req.req_line.method
+                    );
                     continue;
                 }
-                Ok(Err(err)) => {
-                    return Err(err);
-                }
-                Err(_elapsed) => return Err(crate::Error::Other("No ACK received".into())),
             }
         }
 
@@ -113,7 +115,7 @@ impl Established {
         let (tx, rx) = mpsc::channel::<SessionEvent>(10);
 
         tokio::spawn(async move {
-            if let Err(err) = Self::handle_dialog_msg(dialog, endpoint, tx).await {
+            if let Err(err) = Self::session_loop(dialog, endpoint, tx).await {
                 log::error!("Failed to handle dialog msg: {}", err);
             }
         });
@@ -121,7 +123,7 @@ impl Established {
         Self { rx }
     }
 
-    async fn handle_dialog_msg(
+    async fn session_loop(
         mut dialog: Dialog,
         endpoint: Endpoint,
         tx: mpsc::Sender<SessionEvent>,
@@ -130,21 +132,20 @@ impl Established {
             match msg {
                 request => match request.req_line.method {
                     SipMethod::Invite => {
-                        let _res = tx
-                            .send(SessionEvent::ReInvite(request))
+                        tx.send(SessionEvent::ReInvite(request))
                             .await
-                            .map_err(|_| crate::Error::ChannelClosed);
+                            .map_err(|_| Error::ChannelClosed)?;
                         break;
                     }
                     SipMethod::Bye => {
                         let bye_tsx = ServerTransaction::from_request(request, endpoint);
 
                         let response = dialog.create_response(&bye_tsx, StatusCode::Ok);
-
                         bye_tsx.send_final_response(response).await?;
+
                         tx.send(SessionEvent::Terminated(Cause::ByeReceived))
                             .await
-                            .map_err(|_| crate::Error::ChannelClosed)?;
+                            .map_err(|_| Error::ChannelClosed)?;
 
                         break;
                     }
