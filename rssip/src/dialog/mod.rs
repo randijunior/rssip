@@ -2,6 +2,7 @@ use std::sync::RwLock;
 
 use rustc_hash::FxHashMap;
 use tokio::sync::mpsc;
+use tokio::time;
 
 use crate::endpoint::{self, ToTake};
 use crate::error::{Error, Result};
@@ -10,7 +11,7 @@ use crate::message::method::SipMethod;
 use crate::message::param::Params;
 use crate::message::sip_uri::{Scheme, Uri};
 use crate::message::status_code::StatusCode;
-use crate::transaction::{Role, ServerTransaction};
+use crate::transaction::{Role, ServerTransaction, timers};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};
 use crate::{Endpoint, IncomingResponse, OutgoingResponse, find_map_header, find_map_mut_header};
 
@@ -175,6 +176,28 @@ impl Dialog {
         }
     }
 
+    pub async fn wait_for_ack(&mut self) -> Result<IncomingRequest> {
+        let ack_timer = timers::T1 * 64;
+        loop {
+            match time::timeout(ack_timer, self.recv_request())
+                .await
+                .map_err(|_elapsed| Error::Other("No ACK received".into()))??
+            {
+                req if req.req_line.method == SipMethod::Ack => {
+                    self.state = DialogState::Confirmed;
+                    return Ok(req);
+                }
+                req => {
+                    log::debug!(
+                        "received request(NoAck): {} (ignoring)",
+                        req.req_line.method
+                    );
+                    continue;
+                }
+            }
+        }
+    }
+
     // RFC 3261 12.2.2.
     async fn process_incoming_request(&mut self, request: &IncomingRequest) -> Result<()> {
         let request_cseq = request.incoming_info.mandatory_headers.cseq.cseq();
@@ -192,10 +215,6 @@ impl Dialog {
         }
 
         self.remote_cseq = request_cseq;
-
-        if method == SipMethod::Ack {
-            self.state = DialogState::Confirmed;
-        }
 
         // RFC3261 12.2.2.
         // When a UAS receives a target refresh request, it MUST replace the

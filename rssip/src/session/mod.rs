@@ -4,13 +4,12 @@ mod session_test;
 use std::ops;
 
 use tokio::sync::mpsc;
-use tokio::time;
 
 use crate::dialog::Dialog;
 use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
-use crate::transaction::{ServerTransaction, timers};
+use crate::transaction::ServerTransaction;
 use crate::{Endpoint, Error, IncomingRequest, Result};
 
 pub enum SessionEvent {
@@ -69,25 +68,7 @@ impl Session<Incoming> {
         } = self.state;
 
         dialog.final_response(server_tsx, status_code).await?;
-
-        let ack_timer = timers::T1 * 64;
-        loop {
-            match time::timeout(ack_timer, dialog.recv_request())
-                .await
-                .map_err(|_elapsed| Error::Other("No ACK received".into()))??
-            {
-                req if req.req_line.method == SipMethod::Ack => {
-                    break;
-                }
-                req => {
-                    log::debug!(
-                        "received request(NoAck): {} (ignoring)",
-                        req.req_line.method
-                    );
-                    continue;
-                }
-            }
-        }
+        dialog.wait_for_ack().await?;
 
         Ok(Session {
             state: Established::new(dialog, endpoint),
