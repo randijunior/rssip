@@ -50,6 +50,7 @@ impl Session<Incoming> {
         })
     }
 
+    // RFC 3261 13.3.1.1
     pub async fn progress(&mut self, status_code: StatusCode) -> Result<()> {
         let Incoming {
             server_tsx, dialog, ..
@@ -60,6 +61,45 @@ impl Session<Incoming> {
         Ok(())
     }
 
+    // RFC 3261 13.3.1.2
+    pub async fn redirect(self, status_code: StatusCode) -> Result<()> {
+        if !matches!(status_code.as_u16(), 300..=399) {
+            return Err(Error::Other(format!(
+                "Invalid status code (expected 3xx) got {:?}",
+                status_code
+            )));
+        }
+        let Incoming {
+            server_tsx,
+            mut dialog,
+            ..
+        } = self.state;
+
+        dialog.final_response(server_tsx, status_code).await?;
+
+        Ok(())
+    }
+
+    // RFC 3261 13.3.1.3
+    pub async fn reject(self, status_code: StatusCode) -> Result<()> {
+        if !matches!(status_code.as_u16(), 400..=699) {
+            return Err(Error::Other(format!(
+                "Invalid status code (expected 4xx-6xx) got {:?}",
+                status_code
+            )));
+        }
+        let Incoming {
+            server_tsx,
+            mut dialog,
+            ..
+        } = self.state;
+
+        dialog.final_response(server_tsx, status_code).await?;
+
+        Ok(())
+    }
+
+    // RFC 3261 13.3.1.4
     pub async fn accept(self, status_code: StatusCode) -> Result<Session<Established>> {
         let Incoming {
             server_tsx,

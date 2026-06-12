@@ -17,6 +17,12 @@ impl HeaderParse for Expires {
     }
 }
 
+impl Expires {
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
+
 impl fmt::Display for Expires {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", Expires::NAME, self.0)
