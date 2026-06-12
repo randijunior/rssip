@@ -6,7 +6,7 @@ use std::ops;
 use tokio::sync::mpsc;
 use tokio::time;
 
-use crate::dialog::{Dialog, DialogState};
+use crate::dialog::Dialog;
 use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
@@ -56,11 +56,7 @@ impl Session<Incoming> {
             server_tsx, dialog, ..
         } = &mut self.state;
 
-        let response = dialog.create_response(&server_tsx, status_code);
-
-        server_tsx.send_provisional_response(response).await?;
-
-        dialog.set_state(DialogState::Early);
+        dialog.provisional_response(server_tsx, status_code).await?;
 
         Ok(())
     }
@@ -72,8 +68,7 @@ impl Session<Incoming> {
             endpoint,
         } = self.state;
 
-        let response = dialog.create_response(&server_tsx, status_code);
-        server_tsx.send_final_response(response).await?;
+        dialog.final_response(server_tsx, status_code).await?;
 
         let ack_timer = timers::T1 * 64;
         loop {
@@ -128,32 +123,28 @@ impl Established {
         endpoint: Endpoint,
         tx: mpsc::Sender<SessionEvent>,
     ) -> Result<()> {
-        while let Ok(msg) = dialog.recv_request().await {
-            match msg {
-                request => match request.req_line.method {
-                    SipMethod::Invite => {
-                        tx.send(SessionEvent::ReInvite(request))
-                            .await
-                            .map_err(|_| Error::ChannelClosed)?;
-                        break;
-                    }
-                    SipMethod::Bye => {
-                        let bye_tsx = ServerTransaction::from_request(request, endpoint);
+        while let Ok(request) = dialog.recv_request().await {
+            match request.req_line.method {
+                SipMethod::Invite => {
+                    tx.send(SessionEvent::ReInvite(request))
+                        .await
+                        .map_err(|_| Error::ChannelClosed)?;
+                    break;
+                }
+                SipMethod::Bye => {
+                    let bye_tsx = ServerTransaction::from_request(request, endpoint);
+                    dialog.final_response(bye_tsx, StatusCode::Ok).await?;
 
-                        let response = dialog.create_response(&bye_tsx, StatusCode::Ok);
-                        bye_tsx.send_final_response(response).await?;
+                    tx.send(SessionEvent::Terminated(Cause::ByeReceived))
+                        .await
+                        .map_err(|_| Error::ChannelClosed)?;
 
-                        tx.send(SessionEvent::Terminated(Cause::ByeReceived))
-                            .await
-                            .map_err(|_| Error::ChannelClosed)?;
-
-                        break;
-                    }
-                    method => {
-                        log::debug!("received request: {} (ignoring)", method);
-                        continue;
-                    }
-                },
+                    break;
+                }
+                method => {
+                    log::debug!("received request: {} (ignoring)", method);
+                    continue;
+                }
             }
         }
 

@@ -12,7 +12,7 @@ use crate::message::sip_uri::{Scheme, Uri};
 use crate::message::status_code::StatusCode;
 use crate::transaction::{Role, ServerTransaction};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};
-use crate::{Endpoint, IncomingResponse, OutgoingResponse, find_map_mut_header};
+use crate::{Endpoint, IncomingResponse, OutgoingResponse, find_map_header, find_map_mut_header};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogState {
@@ -26,7 +26,7 @@ pub struct Dialog {
     dialog_id: DialogId,
     state: DialogState,
     remote_cseq: u32,
-    local_cseq: u32,
+    local_cseq: Option<u32>,
     from: From,
     to: To,
     contact: Contact,
@@ -38,6 +38,7 @@ pub struct Dialog {
 }
 
 impl Dialog {
+    // RFC 3261 12.1.1.
     pub fn create_uas(
         request: &IncomingRequest,
         contact: Contact,
@@ -70,7 +71,7 @@ impl Dialog {
         let dialog = Dialog {
             dialog_id,
             remote_cseq: mandatory_headers.cseq.cseq(),
-            local_cseq: 0,
+            local_cseq: None,
             from: mandatory_headers.from.clone(),
             to: mandatory_headers.to.clone(),
             secure: request.incoming_info.transport_msg.transport.is_secure()
@@ -86,7 +87,35 @@ impl Dialog {
         Ok(dialog)
     }
 
-    pub fn create_response(
+    pub async fn provisional_response(
+        &mut self,
+        server_tsx: &mut ServerTransaction,
+        status_code: StatusCode,
+    ) -> Result<()> {
+        let response = self.create_response(&server_tsx, status_code);
+
+        server_tsx.send_provisional_response(response).await?;
+
+        if status_code.as_u16() != 100 {
+            self.state = DialogState::Early;
+        }
+
+        Ok(())
+    }
+
+    pub async fn final_response(
+        &mut self,
+        server_tsx: ServerTransaction,
+        status_code: StatusCode,
+    ) -> Result<()> {
+        let response = self.create_response(&server_tsx, status_code);
+
+        server_tsx.send_final_response(response).await?;
+
+        Ok(())
+    }
+
+    fn create_response(
         &self,
         server_tsx: &ServerTransaction,
         status_code: StatusCode,
@@ -146,11 +175,12 @@ impl Dialog {
         }
     }
 
+    // RFC 3261 12.2.2.
     async fn process_incoming_request(&mut self, request: &IncomingRequest) -> Result<()> {
         let request_cseq = request.incoming_info.mandatory_headers.cseq.cseq();
+        let method = request.req_line.method;
 
-        if !matches!(request.req_line.method, SipMethod::Cancel | SipMethod::Ack)
-            && request_cseq <= self.remote_cseq
+        if !matches!(method, SipMethod::Cancel | SipMethod::Ack) && request_cseq <= self.remote_cseq
         {
             let mut response = self.endpoint.create_outgoing_response(
                 request,
@@ -163,15 +193,21 @@ impl Dialog {
 
         self.remote_cseq = request_cseq;
 
-        if request.req_line.method == SipMethod::Ack {
+        if method == SipMethod::Ack {
             self.state = DialogState::Confirmed;
         }
 
-        Ok(())
-    }
+        // RFC3261 12.2.2.
+        // When a UAS receives a target refresh request, it MUST replace the
+        // dialog's remote target URI with the URI from the Contact header field
+        // in that request, if present.
+        if method == SipMethod::Invite
+            && let Some(contact) = find_map_header!(request.headers, Contact).cloned()
+        {
+            self.contact = contact;
+        }
 
-    pub(crate) fn set_state(&mut self, dialog_state: DialogState) {
-        self.state = dialog_state;
+        Ok(())
     }
 }
 
@@ -237,6 +273,8 @@ impl endpoint::Plugin for DialogPlugin {
             return;
         };
 
+        // this is a mid-dialog request.
+
         if channel
             .send(IncomingMessage::Request(request))
             .await
@@ -260,12 +298,13 @@ pub struct DialogId {
 impl DialogId {
     pub fn from_incoming_request(request: &IncomingRequest) -> Option<Self> {
         let headers = &request.incoming_info.mandatory_headers;
-        let call_id = headers.call_id.clone();
 
         let local_tag = match headers.to.tag() {
             Some(tag) => tag.to_owned(),
             None => return None,
         };
+
+        let call_id = headers.call_id.clone();
 
         let remote_tag = headers.from.tag().map(|t| t.to_owned());
 
