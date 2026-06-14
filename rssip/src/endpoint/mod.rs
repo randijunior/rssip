@@ -4,6 +4,7 @@ mod builder;
 mod plugin;
 
 use std::any::type_name;
+use std::assert_matches;
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync;
@@ -24,7 +25,6 @@ use crate::message::status_code::StatusCode;
 use crate::message::{ReasonPhrase, Request, Response, StatusLine};
 use crate::resolver::{LookupAddress, SipHost};
 use crate::transaction::manager::TsxPlugin;
-use crate::transaction::{ClientTransaction, ServerTransaction};
 use crate::transport::incoming::{IncomingRequest, IncomingResponse, MandatoryHeaders};
 use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
@@ -173,9 +173,10 @@ impl Endpoint {
         outgoing: &OutgoingRequest,
         response: &IncomingResponse,
     ) -> OutgoingRequest {
-        assert!(
-            matches!(response.status_line.code.as_u16(), 300..699),
-            "message must be a 300-699 final response"
+        assert_matches!(
+            response.status_line.code.as_u16(),
+            300..699,
+            "Invalid status code for ACK, must be a 300-699 final response"
         );
         let target = outgoing.request.req_line.uri.clone();
         // Clone: Via, To, From, Max-Forwards, Call-ID and CSeq from response.

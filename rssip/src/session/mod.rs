@@ -23,8 +23,8 @@ pub enum Cause {
     ByeReceived,
 }
 
-pub struct Session<S> {
-    state: S,
+pub struct Session<State> {
+    state: State,
 }
 
 pub struct Incoming {
@@ -39,12 +39,11 @@ pub struct Established {
 
 impl Session<Incoming> {
     pub fn init_incoming(
-        request: IncomingRequest,
+        server_tsx: ServerTransaction,
         contact: Contact,
         endpoint: Endpoint,
     ) -> Result<Self> {
-        let dialog = Dialog::create_uas(&request, contact, endpoint.clone())?;
-        let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
+        let dialog = Dialog::create_uas(server_tsx.request(), contact, endpoint.clone())?;
         Ok(Session {
             state: Incoming::new(dialog, server_tsx, endpoint),
         })

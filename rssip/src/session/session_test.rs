@@ -15,8 +15,9 @@ async fn test_create_session() {
     let endpoint = create_test_endpoint().await;
     let req = create_test_invite();
     let contact = "test <sip:localhost:5969>".parse().unwrap();
+    let server_tsx = ServerTransaction::from_request(req, endpoint.clone());
 
-    let mut session = Session::init_incoming(req, contact, endpoint).unwrap();
+    let mut session = Session::init_incoming(server_tsx, contact, endpoint).unwrap();
 
     session.progress(StatusCode::Trying).await.unwrap();
     session.progress(StatusCode::Ringing).await.unwrap();

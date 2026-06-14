@@ -112,11 +112,11 @@ impl ServerTransaction {
     ) -> Result<()> {
         let code = response.status_line.code;
 
-        assert!(
-            code.is_provisional(),
-            "Invalid provisional response (expected 1xx) got {:?}",
-            code
-        );
+        if !code.is_provisional() {
+            return Err(Error::Other(format!(
+                "Invalid provisional response (expected 1xx) got {code:?}"
+            )));
+        }
 
         self.send_response(&mut response).await?;
 
@@ -158,11 +158,12 @@ impl ServerTransaction {
     pub async fn send_final_response(mut self, mut response: OutgoingResponse) -> Result<()> {
         let code = response.status_line.code;
 
-        assert!(
-            code.is_final(),
-            "Invalid final response (expected 2xx-6xx) got {:?}",
-            code
-        );
+        if !code.is_final() {
+            return Err(Error::Other(format!(
+                "Invalid final response (expected 2xx-6xx) got {code:?}"
+            )));
+        }
+
         let is_invite_tsx = self.request.req_line.method == SipMethod::Invite;
 
         self.send_response(&mut response).await?;
@@ -260,6 +261,10 @@ impl ServerTransaction {
             self.endpoint
                 .create_outgoing_response(&self.request, code, reason)
         }
+    }
+
+    pub(crate) fn request(&self) -> &IncomingRequest {
+        &self.request
     }
 
     pub(crate) fn key(&self) -> &TransactionKey {
