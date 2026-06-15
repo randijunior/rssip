@@ -43,6 +43,11 @@ impl Session<Incoming> {
         contact: Contact,
         endpoint: Endpoint,
     ) -> Result<Self> {
+        if !server_tsx.is_invite_tsx() {
+            return Err(Error::Other(format!(
+                "Only INVITE transactions can create a session"
+            )));
+        }
         let dialog = Dialog::create_uas(server_tsx.request(), contact, endpoint.clone())?;
         Ok(Session {
             state: Incoming::new(dialog, server_tsx, endpoint),
