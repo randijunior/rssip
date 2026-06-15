@@ -5,14 +5,13 @@
 //! A rust library that implements the SIP protocol.
 //!
 
-pub mod dialog;
+pub mod ua_layer;
 pub mod endpoint;
 pub(crate) mod error;
 pub mod macros;
 pub mod message;
 pub(crate) mod parser;
 pub mod resolver;
-pub mod session;
 pub mod transaction;
 pub(crate) mod transport;
 

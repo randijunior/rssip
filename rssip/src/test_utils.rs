@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use bytes::Bytes;
 
-use crate::dialog::DialogPlugin;
+use crate::ua_layer::dialog::DialogPlugin;
 use crate::endpoint::{Endpoint, EndpointBuilder};
 use crate::message::Request;
 use crate::message::headers::{CSeq, CallId, From, Header, Headers, MaxForwards, To, Via};

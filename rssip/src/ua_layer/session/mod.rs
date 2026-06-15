@@ -5,11 +5,11 @@ use std::ops;
 
 use tokio::sync::mpsc;
 
-use crate::dialog::Dialog;
 use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::ServerTransaction;
+use crate::ua_layer::dialog::Dialog;
 use crate::{Endpoint, Error, IncomingRequest, Result};
 
 pub enum SessionEvent {
@@ -38,7 +38,7 @@ pub struct Established {
 }
 
 impl Session<Incoming> {
-    pub fn init_incoming(
+    pub fn from_invitation(
         server_tsx: ServerTransaction,
         contact: Contact,
         endpoint: Endpoint,

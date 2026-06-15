@@ -16,7 +16,7 @@ pub use plugin::{Plugin, ToTake};
 
 use self::plugin::Plugins;
 use crate::Result;
-use crate::dialog::DialogPlugin;
+use crate::ua_layer::dialog::DialogPlugin;
 use crate::error::Error;
 use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
 use crate::message::method::SipMethod;
