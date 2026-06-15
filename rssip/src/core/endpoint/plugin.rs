@@ -3,7 +3,7 @@ use std::ops;
 use downcast_rs::{Downcast, impl_downcast};
 
 use crate::Endpoint;
-use crate::endpoint::EndpointBuilder;
+use crate::core::endpoint::EndpointBuilder;
 use crate::transport::incoming::{IncomingRequest, IncomingResponse};
 use crate::transport::outgoing::{OutgoingRequest, OutgoingResponse};
 

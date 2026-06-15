@@ -23,7 +23,7 @@ use crate::message::method::SipMethod;
 use crate::message::sip_uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::status_code::StatusCode;
 use crate::message::{ReasonPhrase, Request, Response, StatusLine};
-use crate::resolver::{LookupAddress, SipHost};
+use super::resolver::{LookupAddress, SipHost};
 use crate::transaction::manager::TsxPlugin;
 use crate::transport::incoming::{IncomingRequest, IncomingResponse, MandatoryHeaders};
 use crate::transport::outgoing::{

@@ -5,17 +5,18 @@
 //! A rust library that implements the SIP protocol.
 //!
 
+mod core;
 pub mod ua_layer;
-pub mod endpoint;
 pub(crate) mod error;
 pub mod macros;
 pub mod message;
 pub(crate) mod parser;
-pub mod resolver;
 pub mod transaction;
 pub(crate) mod transport;
 
-pub use endpoint::Endpoint;
+pub use core::resolver;
+pub use core::endpoint;
+pub use core::endpoint::Endpoint;
 pub use error::Result;
 pub use sdp;
 pub use transport::incoming::{IncomingMessage, IncomingRequest, IncomingResponse};
