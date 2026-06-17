@@ -3,7 +3,7 @@ use std::fmt;
 use crate::error::Result;
 use crate::macros;
 use crate::message::param::Params;
-use crate::message::sip_uri::NameAddr;
+use crate::message::uri::NameAddr;
 use crate::parser::{HeaderParse, SipParser};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

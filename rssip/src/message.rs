@@ -3,15 +3,15 @@
 pub mod headers;
 pub mod method;
 pub mod param;
-pub mod sip_auth;
-pub mod sip_uri;
+pub mod auth;
+pub mod uri;
 pub mod status_code;
 
 use std::{borrow, fmt, ops};
 
 use crate::message::headers::Headers;
 use crate::message::method::SipMethod;
-use crate::message::sip_uri::Uri;
+use crate::message::uri::Uri;
 use crate::message::status_code::StatusCode;
 
 /// An SIP message, either `Request` or `Response`.

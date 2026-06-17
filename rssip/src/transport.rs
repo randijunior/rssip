@@ -31,7 +31,7 @@ use self::ws::WebSocketTransport;
 use crate::endpoint::{Endpoint, WeakEndpointHandle};
 use crate::error::{Error, Result};
 use crate::message::SipMessage;
-use crate::message::sip_uri::{HostPort, Scheme, Uri};
+use crate::message::uri::{HostPort, Scheme, Uri};
 use crate::parser::SipParser;
 use crate::resolver::{DefaultResolver, DomainResolver, ServerAddresses, SipHost};
 

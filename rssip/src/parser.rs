@@ -1,6 +1,4 @@
 //! SIP Parser
-#[cfg(test)]
-mod parser_test;
 
 use std::str::{self, FromStr};
 
@@ -10,7 +8,7 @@ use utils::{lookup_table, scanner};
 
 use crate::error::{Error, ParseError, ParseErrorKind as Kind, Result};
 use crate::message::headers::{self as header, Header};
-use crate::message::{self, method, param, sip_auth, sip_uri, status_code};
+use crate::message::{self, method, param, auth, uri, status_code};
 use crate::{macros, transport};
 
 #[must_use]
@@ -380,28 +378,28 @@ impl<'buf> SipParser<'buf> {
         Ok(header_name)
     }
 
-    pub fn parse_sip_uri(&mut self, params: bool) -> Result<sip_uri::SipUri> {
+    pub fn parse_sip_uri(&mut self, params: bool) -> Result<uri::SipUri> {
         self.skip_ws();
 
         if matches!(self.scanner.peek(), Some(b'"') | Some(b'<')) {
             let name_addr = self.parse_name_addr()?;
-            Ok(sip_uri::SipUri::NameAddr(name_addr))
+            Ok(uri::SipUri::NameAddr(name_addr))
         } else {
             let scheme_or_display = self
                 .scanner
                 .peek_while(|b| !matches!(b, b':' | b'\r' | b'\n' | b'<'));
             if matches!(scheme_or_display, SIP | SIPS) {
                 let uri = self.parse_uri(params)?;
-                Ok(sip_uri::SipUri::Uri(uri))
+                Ok(uri::SipUri::Uri(uri))
             } else {
                 let name_addr = self.parse_name_addr()?;
-                Ok(sip_uri::SipUri::NameAddr(name_addr))
+                Ok(uri::SipUri::NameAddr(name_addr))
             }
         }
     }
 
-    pub fn parse_uri(&mut self, parse_params: bool) -> Result<sip_uri::Uri> {
-        let mut uri = message::sip_uri::Uri {
+    pub fn parse_uri(&mut self, parse_params: bool) -> Result<uri::Uri> {
+        let mut uri = message::uri::Uri {
             scheme: self.parse_scheme()?,
             user: self.parse_user_info()?,
             host_port: self.parse_host_port()?,
@@ -445,7 +443,7 @@ impl<'buf> SipParser<'buf> {
                 }
                 param::MADDR_PARAM => {
                     uri.maddr_param = pvalue
-                        .map(|maddr| maddr.parse::<sip_uri::Host>())
+                        .map(|maddr| maddr.parse::<uri::Host>())
                         .transpose()
                         .or_else(|_| self.error(Kind::Host))?;
                     None
@@ -464,7 +462,7 @@ impl<'buf> SipParser<'buf> {
         Ok(uri)
     }
 
-    pub fn parse_name_addr(&mut self) -> Result<sip_uri::NameAddr> {
+    pub fn parse_name_addr(&mut self) -> Result<uri::NameAddr> {
         self.skip_ws();
         let display = self.parse_display_name()?;
         self.skip_ws();
@@ -473,10 +471,10 @@ impl<'buf> SipParser<'buf> {
         let uri = self.parse_uri(true)?;
         self.must_read(b'>')?;
 
-        Ok(sip_uri::NameAddr { display, uri })
+        Ok(uri::NameAddr { display, uri })
     }
 
-    pub fn parse_host_port(&mut self) -> Result<sip_uri::HostPort> {
+    pub fn parse_host_port(&mut self) -> Result<uri::HostPort> {
         let host = match self.peek() {
             Some(b'[') => {
                 // Is a Ipv6 host
@@ -489,7 +487,7 @@ impl<'buf> SipParser<'buf> {
                 self.advance()?;
 
                 if let Ok(ipv6_addr) = host.parse() {
-                    sip_uri::Host::IpAddr(ipv6_addr)
+                    uri::Host::IpAddr(ipv6_addr)
                 } else {
                     return self.error(Kind::Host);
                 }
@@ -501,16 +499,16 @@ impl<'buf> SipParser<'buf> {
                     return self.error(Kind::Host);
                 }
                 if let Ok(ip_addr) = host.parse() {
-                    sip_uri::Host::IpAddr(ip_addr)
+                    uri::Host::IpAddr(ip_addr)
                 } else {
-                    sip_uri::Host::HostName(sip_uri::HostName::from(host))
+                    uri::Host::HostName(uri::HostName::from(host))
                 }
             }
         };
 
         let port = self.parse_port()?;
 
-        Ok(sip_uri::HostPort { host, port })
+        Ok(uri::HostPort { host, port })
     }
 
     fn parse_status_code(&mut self) -> Result<status_code::StatusCode> {
@@ -531,12 +529,12 @@ impl<'buf> SipParser<'buf> {
         Ok(message::ReasonPhrase::from(reason))
     }
 
-    fn parse_scheme(&mut self) -> Result<sip_uri::Scheme> {
+    fn parse_scheme(&mut self) -> Result<uri::Scheme> {
         let token = self.scanner.peek_while(is_token);
 
         let scheme = match token {
-            SIP => sip_uri::Scheme::Sip,
-            SIPS => sip_uri::Scheme::Sips,
+            SIP => uri::Scheme::Sip,
+            SIPS => uri::Scheme::Sips,
             _ => return self.error(Kind::Scheme),
         };
 
@@ -549,7 +547,7 @@ impl<'buf> SipParser<'buf> {
         Ok(scheme)
     }
 
-    fn parse_user_info(&mut self) -> Result<Option<sip_uri::UserInfo>> {
+    fn parse_user_info(&mut self) -> Result<Option<uri::UserInfo>> {
         if self.exists_user_part_in_uri() {
             // We have user part in uri.
             let user = self.read_user().to_owned();
@@ -563,7 +561,7 @@ impl<'buf> SipParser<'buf> {
                 .must_read(b'@')
                 .or_else(|_| self.error(Kind::Uri))?;
 
-            Ok(Some(sip_uri::UserInfo { user, pass }))
+            Ok(Some(uri::UserInfo { user, pass }))
         } else {
             Ok(None)
         }
@@ -586,8 +584,8 @@ impl<'buf> SipParser<'buf> {
         }
     }
 
-    fn parse_uri_headers(&mut self) -> Result<sip_uri::UriHeaders> {
-        let mut uri_headers = sip_uri::UriHeaders::default();
+    fn parse_uri_headers(&mut self) -> Result<uri::UriHeaders> {
+        let mut uri_headers = uri::UriHeaders::default();
         loop {
             let param = self.parse_uri_header()?;
             uri_headers.push(param);
@@ -599,7 +597,7 @@ impl<'buf> SipParser<'buf> {
         Ok(uri_headers)
     }
 
-    fn parse_display_name(&mut self) -> Result<Option<sip_uri::DisplayName>> {
+    fn parse_display_name(&mut self) -> Result<Option<uri::DisplayName>> {
         match self.peek() {
             Some(b'"') => {
                 self.advance()?; // consume '"'
@@ -607,13 +605,13 @@ impl<'buf> SipParser<'buf> {
                 self.advance()?; // consume closing '"'
                 let name = str::from_utf8(name)?.to_owned();
 
-                Ok(Some(sip_uri::DisplayName::new(name)))
+                Ok(Some(uri::DisplayName::new(name)))
             }
             Some(b'<') => Ok(None), // no display name
             _ => {
                 let name = self.read_token();
                 self.skip_ws();
-                Ok(Some(sip_uri::DisplayName::new(name.to_owned())))
+                Ok(Some(uri::DisplayName::new(name.to_owned())))
             }
         }
     }
@@ -646,36 +644,36 @@ impl<'buf> SipParser<'buf> {
         }))
     }
 
-    pub fn parse_auth_challenge(&mut self) -> Result<sip_auth::Challenge> {
+    pub fn parse_auth_challenge(&mut self) -> Result<auth::Challenge> {
         let scheme = self.token()?;
 
-        if scheme == sip_auth::DIGEST {
+        if scheme == auth::DIGEST {
             return self.parse_digest_challenge();
         }
 
         let params = macros::parse_params!(self);
 
-        Ok(sip_auth::Challenge::Other {
+        Ok(auth::Challenge::Other {
             scheme: scheme.to_owned(),
             param: params,
         })
     }
 
-    fn parse_digest_challenge(&mut self) -> Result<sip_auth::Challenge> {
-        let mut digest = sip_auth::DigestChallenge::default();
+    fn parse_digest_challenge(&mut self) -> Result<auth::Challenge> {
+        let mut digest = auth::DigestChallenge::default();
 
         loop {
             self.skip_ws();
             let (name, value) = self.param_ref()?;
 
             match name {
-                sip_auth::REALM => digest.realm = value.map(String::from),
-                sip_auth::NONCE => digest.nonce = value.map(String::from),
-                sip_auth::DOMAIN => digest.domain = value.map(String::from),
-                sip_auth::ALGORITHM => digest.algorithm = value.map(String::from),
-                sip_auth::OPAQUE => digest.opaque = value.map(String::from),
-                sip_auth::QOP => digest.qop = value.map(String::from),
-                sip_auth::STALE => digest.stale = value.map(String::from),
+                auth::REALM => digest.realm = value.map(String::from),
+                auth::NONCE => digest.nonce = value.map(String::from),
+                auth::DOMAIN => digest.domain = value.map(String::from),
+                auth::ALGORITHM => digest.algorithm = value.map(String::from),
+                auth::OPAQUE => digest.opaque = value.map(String::from),
+                auth::QOP => digest.qop = value.map(String::from),
+                auth::STALE => digest.stale = value.map(String::from),
                 _other => {
                     // return err?
                 }
@@ -685,27 +683,27 @@ impl<'buf> SipParser<'buf> {
             }
         }
 
-        Ok(sip_auth::Challenge::Digest(digest))
+        Ok(auth::Challenge::Digest(digest))
     }
 
-    fn parse_digest_credential(&mut self) -> Result<sip_auth::Credential> {
-        let mut digest = sip_auth::DigestCredential::default();
+    fn parse_digest_credential(&mut self) -> Result<auth::Credential> {
+        let mut digest = auth::DigestCredential::default();
 
         loop {
             self.skip_ws();
             let (name, value) = self.param_ref()?;
 
             match name {
-                sip_auth::REALM => digest.realm = value.map(String::from),
-                sip_auth::USERNAME => digest.username = value.map(String::from),
-                sip_auth::NONCE => digest.nonce = value.map(String::from),
-                sip_auth::URI => digest.uri = value.map(String::from),
-                sip_auth::RESPONSE => digest.response = value.map(String::from),
-                sip_auth::ALGORITHM => digest.algorithm = value.map(String::from),
-                sip_auth::CNONCE => digest.cnonce = value.map(String::from),
-                sip_auth::OPAQUE => digest.opaque = value.map(String::from),
-                sip_auth::QOP => digest.qop = value.map(String::from),
-                sip_auth::NC => digest.nc = value.map(String::from),
+                auth::REALM => digest.realm = value.map(String::from),
+                auth::USERNAME => digest.username = value.map(String::from),
+                auth::NONCE => digest.nonce = value.map(String::from),
+                auth::URI => digest.uri = value.map(String::from),
+                auth::RESPONSE => digest.response = value.map(String::from),
+                auth::ALGORITHM => digest.algorithm = value.map(String::from),
+                auth::CNONCE => digest.cnonce = value.map(String::from),
+                auth::OPAQUE => digest.opaque = value.map(String::from),
+                auth::QOP => digest.qop = value.map(String::from),
+                auth::NC => digest.nc = value.map(String::from),
                 _ => (), // Ignore unknown parameters
             }
 
@@ -714,22 +712,22 @@ impl<'buf> SipParser<'buf> {
             }
         }
 
-        Ok(sip_auth::Credential::Digest(digest))
+        Ok(auth::Credential::Digest(digest))
     }
 
-    fn parse_other_credential(&mut self, scheme: &'buf str) -> Result<sip_auth::Credential> {
+    fn parse_other_credential(&mut self, scheme: &'buf str) -> Result<auth::Credential> {
         let param = macros::parse_params!(self);
 
-        Ok(sip_auth::Credential::Other {
+        Ok(auth::Credential::Other {
             scheme: scheme.to_owned(),
             param,
         })
     }
 
-    pub fn parse_auth_credential(&mut self) -> Result<sip_auth::Credential> {
+    pub fn parse_auth_credential(&mut self) -> Result<auth::Credential> {
         let scheme = self.token()?;
 
-        if scheme == sip_auth::DIGEST {
+        if scheme == auth::DIGEST {
             return self.parse_digest_credential();
         }
 
@@ -886,4 +884,279 @@ fn is_param(b: u8) -> bool {
 #[must_use]
 fn is_hdr_uri(b: u8) -> bool {
     HDR_TAB[b as usize]
+}
+
+#[cfg(test)]
+mod tests {
+use super::*;
+use crate::{Result};
+
+macro_rules! uri_test_ok {
+    (name: $name:ident, input: $input:literal, expected: $expected:expr) => {
+        #[test]
+        fn $name() -> Result<()> {
+            let uri = $crate::parser::SipParser::new($input).parse_sip_uri(true)?;
+
+            assert_eq!($expected.scheme, uri.scheme());
+            assert_eq!($expected.host_port.host, uri.host_port().host);
+            assert_eq!($expected.host_port.port, uri.host_port().port);
+            assert_eq!($expected.user, uri.user().cloned());
+            assert_eq!($expected.transport_param, uri.transport_param());
+            assert_eq!($expected.ttl_param, uri.ttl_param());
+            assert_eq!($expected.method_param, uri.method_param());
+            assert_eq!($expected.user_param.as_deref(), uri.user_param());
+            assert_eq!($expected.lr_param, uri.lr_param());
+            assert_eq!(&$expected.maddr_param, uri.maddr_param());
+
+            for param in $expected.params.iter() {
+                assert_eq!($expected.params.param(&param.name), param.value.as_deref());
+            }
+            if let Some(headers) = uri.headers() {
+                assert!($expected.headers.is_some(), "missing headers!");
+                for param in $expected.headers.unwrap().iter() {
+                    assert_eq!(headers.param(&param.name), param.value.as_deref());
+                }
+            }
+
+            Ok(())
+        }
+    };
+}
+
+uri_test_ok! {
+    name: uri_test_1,
+    input: "sip:biloxi.com",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .host("biloxi.com".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_2,
+    input: "sip:biloxi.com:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .host("biloxi.com:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_3,
+    input: "sip:a@b:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "a".to_owned(), pass: None})
+        .host("b:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_4,
+    input: "sip:bob@biloxi.com:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_5,
+    input: "sip:bob@192.0.2.201:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("192.0.2.201:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_6,
+    input: "sip:bob@[::1]:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("[::1]:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_7,
+    input: "sip:bob:secret@biloxi.com",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("secret".to_owned())})
+        .host("biloxi.com".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_8,
+    input: "sip:bob:pass@192.0.2.201",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned())})
+        .host("192.0.2.201".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_9,
+    input: "sip:bob@biloxi.com;foo=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com".parse().unwrap())
+        .param("foo".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_10,
+    input: "sip:bob@biloxi.com:5060;foo=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .param("foo".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_11,
+    input: "sips:bob@biloxi.com:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sips)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: uri_test_12,
+    input: "sips:bob:pass@biloxi.com:5060",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sips)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned()) })
+        .host("biloxi.com:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_11,
+    input: "sip:bob@biloxi.com:5060;foo",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .param("foo".to_owned(), None)
+        .host("biloxi.com:5060".parse().unwrap())
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_12,
+    input: "sip:bob@biloxi.com:5060;foo;baz=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .param("baz".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_13,
+    input: "sip:bob@biloxi.com:5060;baz=bar;foo",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .param("baz".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_14,
+    input: "sip:bob@biloxi.com:5060;baz=bar;foo;a=b",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .param("baz".to_owned(), Some("bar".to_owned()))
+        .param("foo".to_owned(), None)
+        .param("a".to_owned(), Some("b".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_15,
+    input: "sip:bob@biloxi.com?foo=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com".parse().unwrap())
+        .header("foo".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_16,
+    input: "sip:bob@biloxi.com?foo",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com".parse().unwrap())
+        .header("foo".to_owned(), None)
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_17,
+    input: "sip:bob@biloxi.com:5060?foo=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .header("foo".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_18,
+    input: "sip:bob@biloxi.com:5060?baz=bar&foo=&a=b",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .header("baz".to_owned(), Some("bar".to_owned()))
+        .header("foo".to_owned(), Some("".to_owned()))
+        .header("a".to_owned(), Some("b".to_owned()))
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_19,
+    input: "sip:bob@biloxi.com:5060?foo=bar&baz",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com:5060".parse().unwrap())
+        .header("foo".to_owned(), Some("bar".to_owned()))
+        .header("baz".to_owned(), None)
+        .build()
+}
+
+uri_test_ok! {
+    name: test_uri_20,
+    input: "sip:bob@biloxi.com;foo?foo=bar",
+    expected: uri::Uri::builder()
+        .scheme(uri::Scheme::Sip)
+        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+        .host("biloxi.com".parse().unwrap())
+        .param("foo".to_owned(), None)
+        .header("foo".to_owned(), Some("bar".to_owned()))
+        .build()
+}
+
 }

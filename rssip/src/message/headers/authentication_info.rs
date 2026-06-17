@@ -1,7 +1,7 @@
 use std::{fmt, str};
 
 use crate::error::Result;
-use crate::message::sip_auth;
+use crate::message::auth;
 use crate::parser::{HeaderParse, SipParser};
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -23,11 +23,11 @@ impl HeaderParse for AuthenticationInfo {
             parser.skip_ws();
             let (name, value) = parser.param_ref()?;
             match name {
-                sip_auth::NEXTNONCE => auth_info.nextnonce = value.map(ToOwned::to_owned),
-                sip_auth::QOP => auth_info.qop = value.map(ToOwned::to_owned),
-                sip_auth::RSPAUTH => auth_info.rspauth = value.map(ToOwned::to_owned),
-                sip_auth::CNONCE => auth_info.cnonce = value.map(ToOwned::to_owned),
-                sip_auth::NC => auth_info.nc = value.map(ToOwned::to_owned),
+                auth::NEXTNONCE => auth_info.nextnonce = value.map(ToOwned::to_owned),
+                auth::QOP => auth_info.qop = value.map(ToOwned::to_owned),
+                auth::RSPAUTH => auth_info.rspauth = value.map(ToOwned::to_owned),
+                auth::CNONCE => auth_info.cnonce = value.map(ToOwned::to_owned),
+                auth::NC => auth_info.nc = value.map(ToOwned::to_owned),
                 // TODO: error here
                 _ => (),
             };

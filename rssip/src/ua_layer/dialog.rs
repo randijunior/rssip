@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 use crate::message::headers::{CallId, Contact, From, Header, Headers, To};
 use crate::message::method::SipMethod;
 use crate::message::param::Params;
-use crate::message::sip_uri::{Scheme, Uri};
+use crate::message::uri::{Scheme, Uri};
 use crate::message::status_code::StatusCode;
 use crate::transaction::{Role, ServerTransaction, timers};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};

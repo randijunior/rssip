@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{self};
 use super::Role;
 use crate::endpoint::{self, ToTake};
 use crate::message::method::SipMethod;
-use crate::message::sip_uri::HostPort;
+use crate::message::uri::HostPort;
 use crate::transport::incoming::{
     IncomingInfo, IncomingMessage, IncomingRequest, IncomingResponse,
 };

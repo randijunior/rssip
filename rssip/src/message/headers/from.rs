@@ -4,7 +4,7 @@ use std::str::{self, FromStr};
 use crate::error::Result;
 use crate::macros;
 use crate::message::param::{self, Params};
-use crate::message::sip_uri::SipUri;
+use crate::message::uri::SipUri;
 use crate::parser::{HeaderParse, SipParser};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

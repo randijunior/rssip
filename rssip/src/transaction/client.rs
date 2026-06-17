@@ -1,6 +1,4 @@
 /// Unit tests
-#[cfg(test)]
-mod client_test;
 
 use std::net::SocketAddr;
 

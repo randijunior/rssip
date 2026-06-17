@@ -7,7 +7,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::error::Result;
 use crate::message::headers::ContentLength;
-use crate::message::sip_uri::HostPort;
+use crate::message::uri::HostPort;
 use crate::message::{Request, Response, SipBody};
 use crate::parser::HeaderParse;
 use crate::transport::{TransportHandle, TransportProtocol};

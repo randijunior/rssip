@@ -6,7 +6,7 @@ use std::{io, ops, sync};
 use tokio::net;
 use utils::OneOrMore;
 
-use crate::message::sip_uri::{Host, HostPort};
+use crate::message::uri::{Host, HostPort};
 use crate::transport::TransportProtocol;
 
 type IoResult<T> = io::Result<T>;

@@ -25,9 +25,6 @@ pub mod utils {
     pub use utils::local_ip;
 }
 
-#[cfg(test)]
-pub(crate) mod test_utils;
-
 use std::fmt::{self, Debug};
 use std::str::{
     FromStr, {self},

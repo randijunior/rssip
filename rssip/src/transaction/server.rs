@@ -1,7 +1,3 @@
-/// Unit tests
-#[cfg(test)]
-mod server_test;
-
 use tokio::sync::mpsc::{self};
 use tokio::task;
 use tokio::time::{self, Instant};

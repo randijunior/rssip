@@ -5,7 +5,7 @@ use std::str::{self, FromStr};
 use crate::error::{ParseErrorKind as ErrorKind, Result};
 use crate::macros;
 use crate::message::param::{self, Params};
-use crate::message::sip_uri::{Host, HostPort};
+use crate::message::uri::{Host, HostPort};
 use crate::parser::{HeaderParse, SIPV2, SipParser};
 use crate::transport::TransportProtocol;
 
