@@ -4,32 +4,31 @@ mod builder;
 mod plugin;
 
 use std::any::type_name;
-use std::assert_matches;
 use std::borrow::Cow;
 use std::net::SocketAddr;
-use std::sync;
 use std::sync::Arc;
+use std::{assert_matches, sync};
 
 pub use builder::EndpointBuilder;
 use bytes::Bytes;
 pub use plugin::{Plugin, ToTake};
 
 use self::plugin::Plugins;
+use super::resolver::{LookupAddress, SipHost};
 use crate::Result;
-use crate::ua_layer::dialog::DialogPlugin;
 use crate::error::Error;
 use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
 use crate::message::method::SipMethod;
 use crate::message::sip_uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::status_code::StatusCode;
 use crate::message::{ReasonPhrase, Request, Response, StatusLine};
-use super::resolver::{LookupAddress, SipHost};
 use crate::transaction::manager::TsxPlugin;
 use crate::transport::incoming::{IncomingRequest, IncomingResponse, MandatoryHeaders};
 use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
 };
 use crate::transport::{TransportHandle, TransportLayer};
+use crate::ua_layer::dialog::DialogPlugin;
 
 struct EndpointInner {
     /// The transport layer for the endpoint.

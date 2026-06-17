@@ -266,7 +266,7 @@ impl ServerTransaction {
     pub(crate) fn request(&self) -> &IncomingRequest {
         &self.request
     }
-    
+
     pub fn is_invite_tsx(&self) -> bool {
         self.request.req_line.method == SipMethod::Invite
     }

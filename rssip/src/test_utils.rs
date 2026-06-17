@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use bytes::Bytes;
 
-use crate::ua_layer::dialog::DialogPlugin;
 use crate::endpoint::{Endpoint, EndpointBuilder};
 use crate::message::Request;
 use crate::message::headers::{CSeq, CallId, From, Header, Headers, MaxForwards, To, Via};
@@ -13,6 +12,7 @@ use crate::message::sip_uri::Uri;
 use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
 use crate::transport::{Packet, TransportHandle, TransportMessage};
+use crate::ua_layer::dialog::DialogPlugin;
 
 pub async fn create_test_endpoint() -> Endpoint {
     EndpointBuilder::new()
