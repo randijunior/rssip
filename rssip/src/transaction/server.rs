@@ -8,8 +8,8 @@ use crate::message::ReasonPhrase;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::fsm::{State, StateMachine};
-use crate::transaction::manager::{TransactionEntry, TransactionKey};
 use crate::transaction::timers::{T1, T2, T4};
+use crate::transaction::{TransactionEntry, TransactionKey};
 use crate::transport::incoming::{IncomingMessage, IncomingRequest};
 use crate::transport::outgoing::{OutgoingDestInfo, OutgoingResponse, TargetTransportInfo};
 

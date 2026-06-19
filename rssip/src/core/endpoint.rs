@@ -19,10 +19,10 @@ use crate::Result;
 use crate::error::Error;
 use crate::message::headers::{Accept, Allow, CSeq, Header, Headers, Route, Supported};
 use crate::message::method::SipMethod;
-use crate::message::uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::status_code::StatusCode;
+use crate::message::uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::{ReasonPhrase, Request, Response, StatusLine};
-use crate::transaction::manager::TsxPlugin;
+use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingRequest, IncomingResponse, MandatoryHeaders};
 use crate::transport::outgoing::{
     Encode, OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,

@@ -8,7 +8,7 @@ use utils::{lookup_table, scanner};
 
 use crate::error::{Error, ParseError, ParseErrorKind as Kind, Result};
 use crate::message::headers::{self as header, Header};
-use crate::message::{self, method, param, auth, uri, status_code};
+use crate::message::{self, auth, method, param, status_code, uri};
 use crate::{macros, transport};
 
 #[must_use]
@@ -888,275 +888,274 @@ fn is_hdr_uri(b: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-use super::*;
-use crate::{Result};
+    use super::*;
+    use crate::Result;
 
-macro_rules! uri_test_ok {
-    (name: $name:ident, input: $input:literal, expected: $expected:expr) => {
-        #[test]
-        fn $name() -> Result<()> {
-            let uri = $crate::parser::SipParser::new($input).parse_sip_uri(true)?;
+    macro_rules! uri_test_ok {
+        (name: $name:ident, input: $input:literal, expected: $expected:expr) => {
+            #[test]
+            fn $name() -> Result<()> {
+                let uri = $crate::parser::SipParser::new($input).parse_sip_uri(true)?;
 
-            assert_eq!($expected.scheme, uri.scheme());
-            assert_eq!($expected.host_port.host, uri.host_port().host);
-            assert_eq!($expected.host_port.port, uri.host_port().port);
-            assert_eq!($expected.user, uri.user().cloned());
-            assert_eq!($expected.transport_param, uri.transport_param());
-            assert_eq!($expected.ttl_param, uri.ttl_param());
-            assert_eq!($expected.method_param, uri.method_param());
-            assert_eq!($expected.user_param.as_deref(), uri.user_param());
-            assert_eq!($expected.lr_param, uri.lr_param());
-            assert_eq!(&$expected.maddr_param, uri.maddr_param());
+                assert_eq!($expected.scheme, uri.scheme());
+                assert_eq!($expected.host_port.host, uri.host_port().host);
+                assert_eq!($expected.host_port.port, uri.host_port().port);
+                assert_eq!($expected.user, uri.user().cloned());
+                assert_eq!($expected.transport_param, uri.transport_param());
+                assert_eq!($expected.ttl_param, uri.ttl_param());
+                assert_eq!($expected.method_param, uri.method_param());
+                assert_eq!($expected.user_param.as_deref(), uri.user_param());
+                assert_eq!($expected.lr_param, uri.lr_param());
+                assert_eq!(&$expected.maddr_param, uri.maddr_param());
 
-            for param in $expected.params.iter() {
-                assert_eq!($expected.params.param(&param.name), param.value.as_deref());
-            }
-            if let Some(headers) = uri.headers() {
-                assert!($expected.headers.is_some(), "missing headers!");
-                for param in $expected.headers.unwrap().iter() {
-                    assert_eq!(headers.param(&param.name), param.value.as_deref());
+                for param in $expected.params.iter() {
+                    assert_eq!($expected.params.param(&param.name), param.value.as_deref());
                 }
+                if let Some(headers) = uri.headers() {
+                    assert!($expected.headers.is_some(), "missing headers!");
+                    for param in $expected.headers.unwrap().iter() {
+                        assert_eq!(headers.param(&param.name), param.value.as_deref());
+                    }
+                }
+
+                Ok(())
             }
+        };
+    }
 
-            Ok(())
-        }
-    };
-}
+    uri_test_ok! {
+        name: uri_test_1,
+        input: "sip:biloxi.com",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .host("biloxi.com".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_1,
-    input: "sip:biloxi.com",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .host("biloxi.com".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_2,
+        input: "sip:biloxi.com:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .host("biloxi.com:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_2,
-    input: "sip:biloxi.com:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .host("biloxi.com:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_3,
+        input: "sip:a@b:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "a".to_owned(), pass: None})
+            .host("b:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_3,
-    input: "sip:a@b:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "a".to_owned(), pass: None})
-        .host("b:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_4,
+        input: "sip:bob@biloxi.com:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_4,
-    input: "sip:bob@biloxi.com:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_5,
+        input: "sip:bob@192.0.2.201:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("192.0.2.201:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_5,
-    input: "sip:bob@192.0.2.201:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("192.0.2.201:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_6,
+        input: "sip:bob@[::1]:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("[::1]:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_6,
-    input: "sip:bob@[::1]:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("[::1]:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_7,
+        input: "sip:bob:secret@biloxi.com",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("secret".to_owned())})
+            .host("biloxi.com".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_7,
-    input: "sip:bob:secret@biloxi.com",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("secret".to_owned())})
-        .host("biloxi.com".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_8,
+        input: "sip:bob:pass@192.0.2.201",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned())})
+            .host("192.0.2.201".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_8,
-    input: "sip:bob:pass@192.0.2.201",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned())})
-        .host("192.0.2.201".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_9,
+        input: "sip:bob@biloxi.com;foo=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com".parse().unwrap())
+            .param("foo".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_9,
-    input: "sip:bob@biloxi.com;foo=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com".parse().unwrap())
-        .param("foo".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_10,
+        input: "sip:bob@biloxi.com:5060;foo=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .param("foo".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_10,
-    input: "sip:bob@biloxi.com:5060;foo=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .param("foo".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_11,
+        input: "sips:bob@biloxi.com:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sips)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_11,
-    input: "sips:bob@biloxi.com:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sips)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: uri_test_12,
+        input: "sips:bob:pass@biloxi.com:5060",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sips)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned()) })
+            .host("biloxi.com:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: uri_test_12,
-    input: "sips:bob:pass@biloxi.com:5060",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sips)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: Some("pass".to_owned()) })
-        .host("biloxi.com:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_11,
+        input: "sip:bob@biloxi.com:5060;foo",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .param("foo".to_owned(), None)
+            .host("biloxi.com:5060".parse().unwrap())
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_11,
-    input: "sip:bob@biloxi.com:5060;foo",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .param("foo".to_owned(), None)
-        .host("biloxi.com:5060".parse().unwrap())
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_12,
+        input: "sip:bob@biloxi.com:5060;foo;baz=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .param("baz".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_12,
-    input: "sip:bob@biloxi.com:5060;foo;baz=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .param("baz".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_13,
+        input: "sip:bob@biloxi.com:5060;baz=bar;foo",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .param("baz".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_13,
-    input: "sip:bob@biloxi.com:5060;baz=bar;foo",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .param("baz".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_14,
+        input: "sip:bob@biloxi.com:5060;baz=bar;foo;a=b",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .param("baz".to_owned(), Some("bar".to_owned()))
+            .param("foo".to_owned(), None)
+            .param("a".to_owned(), Some("b".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_14,
-    input: "sip:bob@biloxi.com:5060;baz=bar;foo;a=b",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .param("baz".to_owned(), Some("bar".to_owned()))
-        .param("foo".to_owned(), None)
-        .param("a".to_owned(), Some("b".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_15,
+        input: "sip:bob@biloxi.com?foo=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com".parse().unwrap())
+            .header("foo".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_15,
-    input: "sip:bob@biloxi.com?foo=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com".parse().unwrap())
-        .header("foo".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_16,
+        input: "sip:bob@biloxi.com?foo",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com".parse().unwrap())
+            .header("foo".to_owned(), None)
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_16,
-    input: "sip:bob@biloxi.com?foo",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com".parse().unwrap())
-        .header("foo".to_owned(), None)
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_17,
+        input: "sip:bob@biloxi.com:5060?foo=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .header("foo".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_17,
-    input: "sip:bob@biloxi.com:5060?foo=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .header("foo".to_owned(), Some("bar".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_18,
+        input: "sip:bob@biloxi.com:5060?baz=bar&foo=&a=b",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .header("baz".to_owned(), Some("bar".to_owned()))
+            .header("foo".to_owned(), Some("".to_owned()))
+            .header("a".to_owned(), Some("b".to_owned()))
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_18,
-    input: "sip:bob@biloxi.com:5060?baz=bar&foo=&a=b",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .header("baz".to_owned(), Some("bar".to_owned()))
-        .header("foo".to_owned(), Some("".to_owned()))
-        .header("a".to_owned(), Some("b".to_owned()))
-        .build()
-}
+    uri_test_ok! {
+        name: test_uri_19,
+        input: "sip:bob@biloxi.com:5060?foo=bar&baz",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com:5060".parse().unwrap())
+            .header("foo".to_owned(), Some("bar".to_owned()))
+            .header("baz".to_owned(), None)
+            .build()
+    }
 
-uri_test_ok! {
-    name: test_uri_19,
-    input: "sip:bob@biloxi.com:5060?foo=bar&baz",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com:5060".parse().unwrap())
-        .header("foo".to_owned(), Some("bar".to_owned()))
-        .header("baz".to_owned(), None)
-        .build()
-}
-
-uri_test_ok! {
-    name: test_uri_20,
-    input: "sip:bob@biloxi.com;foo?foo=bar",
-    expected: uri::Uri::builder()
-        .scheme(uri::Scheme::Sip)
-        .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
-        .host("biloxi.com".parse().unwrap())
-        .param("foo".to_owned(), None)
-        .header("foo".to_owned(), Some("bar".to_owned()))
-        .build()
-}
-
+    uri_test_ok! {
+        name: test_uri_20,
+        input: "sip:bob@biloxi.com;foo?foo=bar",
+        expected: uri::Uri::builder()
+            .scheme(uri::Scheme::Sip)
+            .user(uri::UserInfo { user: "bob".to_owned(), pass: None})
+            .host("biloxi.com".parse().unwrap())
+            .param("foo".to_owned(), None)
+            .header("foo".to_owned(), Some("bar".to_owned()))
+            .build()
+    }
 }

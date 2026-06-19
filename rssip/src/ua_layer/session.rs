@@ -9,8 +9,7 @@ use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::ServerTransaction;
 use crate::ua_layer::dialog::Dialog;
-use crate::ua_layer::negotiator::{Done, LocalOffer, WaitNego};
-use crate::ua_layer::negotiator::{Negotiator, RemoteOffer};
+use crate::ua_layer::negotiator::{Done, LocalOffer, Negotiator, RemoteOffer, WaitNego};
 use crate::{Endpoint, Error, IncomingRequest, Result};
 
 // Offer                Answer             RFC    Ini Est Early
@@ -54,44 +53,6 @@ impl<N> Session<Incoming, N> {
 
         Ok(())
     }
-
-    // RFC 3261 13.3.1.2
-    pub async fn redirect(self, status_code: StatusCode) -> Result<()> {
-        if !matches!(status_code.as_u16(), 300..=399) {
-            return Err(Error::Other(format!(
-                "Invalid status code (expected 3xx) got {:?}",
-                status_code
-            )));
-        }
-        let Incoming {
-            server_tsx,
-            mut dialog,
-            ..
-        } = self.state;
-
-        dialog.final_response(server_tsx, status_code).await?;
-
-        Ok(())
-    }
-
-    // RFC 3261 13.3.1.3
-    pub async fn reject(self, status_code: StatusCode) -> Result<()> {
-        if !matches!(status_code.as_u16(), 400..=699) {
-            return Err(Error::Other(format!(
-                "Invalid status code (expected 4xx-6xx) got {:?}",
-                status_code
-            )));
-        }
-        let Incoming {
-            server_tsx,
-            mut dialog,
-            ..
-        } = self.state;
-
-        dialog.final_response(server_tsx, status_code).await?;
-
-        Ok(())
-    }
 }
 
 impl Session<Incoming> {
@@ -105,7 +66,7 @@ impl Session<Incoming> {
         if request.body.is_some() {
             return Err(Error::ErrUnexpectedSdpBody);
         }
-        let dialog = Dialog::create_uas(server_tsx.request(), contact, endpoint.clone())?;
+        let dialog = Dialog::create_uas(request, contact, endpoint.clone())?;
         let nego = Negotiator::new();
 
         Ok(Session {

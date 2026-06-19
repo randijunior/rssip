@@ -30,6 +30,8 @@ use self::tcp::TcpTransport;
 use self::ws::WebSocketTransport;
 use crate::endpoint::{Endpoint, WeakEndpointHandle};
 use crate::error::{Error, Result};
+#[cfg(test)]
+use crate::message::Request;
 use crate::message::SipMessage;
 use crate::message::uri::{HostPort, Scheme, Uri};
 use crate::parser::SipParser;
@@ -465,5 +467,110 @@ impl Packet {
             source,
             time: SystemTime::now(),
         }
+    }
+}
+
+/// A mock transport, for testing purposes
+#[derive(Clone)]
+#[cfg(test)]
+pub(crate) struct MockTransport {
+    sent: Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>,
+    addr: SocketAddr,
+    protocol: TransportProtocol,
+    fail_at: Option<usize>,
+}
+
+#[cfg(test)]
+impl MockTransport {
+    pub fn with_protocol(protocol: TransportProtocol) -> Self {
+        use std::net::Ipv4Addr;
+
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let port = protocol.default_port();
+        let mock = Self {
+            sent: Default::default(),
+            addr: SocketAddr::new(ip, port),
+            protocol,
+            fail_at: None,
+        };
+
+        mock
+    }
+
+    pub fn new_udp() -> Self {
+        Self::with_protocol(TransportProtocol::Udp)
+    }
+
+    pub fn new_tcp() -> Self {
+        Self::with_protocol(TransportProtocol::Tcp)
+    }
+
+    pub fn new_tls() -> Self {
+        Self::with_protocol(TransportProtocol::Tls)
+    }
+
+    pub fn last_sent_request(&self) -> Option<Request> {
+        self.last_sent_message().map(|msg| {
+            if let SipMessage::Request(req) = msg {
+                Some(req)
+            } else {
+                None
+            }
+        })?
+    }
+
+    pub fn sent_count(&self) -> usize {
+        self.sent.lock().unwrap().len()
+    }
+
+    pub fn last_sent_message(&self) -> Option<SipMessage> {
+        let guard = self.sent.lock().unwrap();
+        guard
+            .last()
+            .map(|(buff, _)| buff)
+            .cloned()
+            .map(|b| SipParser::parse(&b).unwrap())
+    }
+
+    fn push_msg(&self, (buf_vec, address): (Vec<u8>, SocketAddr)) -> usize {
+        let mut guard = self.sent.lock().unwrap();
+        guard.push((buf_vec, address));
+        guard.len()
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl SipTransport for MockTransport {
+    async fn send_msg(&self, buf: &[u8], address: &SocketAddr) -> crate::Result<usize> {
+        let current_count = self.push_msg((buf.to_vec(), *address));
+
+        if let Some(fail_at) = self.fail_at
+            && fail_at == current_count
+        {
+            return Err(crate::Error::Transport("Simulated failure".into()));
+        }
+
+        Ok(buf.len())
+    }
+
+    fn remote_addr(&self) -> Option<SocketAddr> {
+        None
+    }
+
+    fn protocol(&self) -> TransportProtocol {
+        self.protocol
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    fn is_reliable(&self) -> bool {
+        self.protocol.is_reliable()
+    }
+
+    fn is_secure(&self) -> bool {
+        self.protocol.is_secure()
     }
 }

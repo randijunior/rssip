@@ -1,18 +1,18 @@
 //! SIP Message types
 
+pub mod auth;
 pub mod headers;
 pub mod method;
 pub mod param;
-pub mod auth;
-pub mod uri;
 pub mod status_code;
+pub mod uri;
 
 use std::{borrow, fmt, ops};
 
 use crate::message::headers::Headers;
 use crate::message::method::SipMethod;
-use crate::message::uri::Uri;
 use crate::message::status_code::StatusCode;
+use crate::message::uri::Uri;
 
 /// An SIP message, either `Request` or `Response`.
 pub enum SipMessage {

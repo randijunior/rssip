@@ -1,12 +1,12 @@
 use sdp::msg::SessionDescription;
 
-use crate::error::{Result};
+use crate::error::Result;
 
 // RFC 3264: An Offer/Answer Model with the Session Description Protocol (SDP)
 
 #[derive(Default)]
 pub struct Negotiator<N> {
-    neg: N
+    neg: N,
 }
 
 pub struct RemoteOffer {
@@ -14,25 +14,23 @@ pub struct RemoteOffer {
 }
 
 pub struct LocalOffer {
-    local: SessionDescription
+    local: SessionDescription,
 }
-
-
 
 pub struct WaitNego {
     local: LocalOffer,
-    remote: RemoteOffer
+    remote: RemoteOffer,
 }
 
 struct Negotiated {
-    negotiated: SessionDescription
+    negotiated: SessionDescription,
 }
 
 pub struct Done {
     local: LocalOffer,
     remote: RemoteOffer,
 
-    negotiated: Negotiated
+    negotiated: Negotiated,
 }
 
 impl LocalOffer {
@@ -55,16 +53,26 @@ impl Negotiator<()> {
 
 impl Negotiator<RemoteOffer> {
     // Early Offer
-    pub fn from_remote(remote: RemoteOffer) -> Self { todo!() }
-    pub fn set_local_offer(self, local: LocalOffer) -> Negotiator<WaitNego> { todo!() }
+    pub fn from_remote(remote: RemoteOffer) -> Self {
+        todo!()
+    }
+    pub fn set_local_offer(self, local: LocalOffer) -> Negotiator<WaitNego> {
+        todo!()
+    }
 }
 
 impl Negotiator<LocalOffer> {
     // Late Offer
-    pub fn from_local(local: LocalOffer) -> Self  { Self { neg: local } }
-    pub fn process_answer(self, sdp: SessionDescription) -> Result<Negotiator<Done>> { todo!() }
+    pub fn from_local(local: LocalOffer) -> Self {
+        Self { neg: local }
+    }
+    pub fn process_answer(self, sdp: SessionDescription) -> Result<Negotiator<Done>> {
+        todo!()
+    }
 }
 
 impl Negotiator<WaitNego> {
-    pub fn negotiate(self) -> Result<Negotiator<Done>> { todo!() }
+    pub fn negotiate(self) -> Result<Negotiator<Done>> {
+        todo!()
+    }
 }

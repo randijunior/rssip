@@ -184,3 +184,94 @@ impl fmt::Display for MediaType {
         Ok(())
     }
 }
+
+/// Test utilities
+#[cfg(test)]
+mod test_utils {
+    use std::str::FromStr;
+
+    use bytes::Bytes;
+
+    use crate::endpoint::{Endpoint, EndpointBuilder};
+    use crate::message::Request;
+    use crate::message::headers::{CSeq, CallId, From, Header, Headers, MaxForwards, To, Via};
+    use crate::message::method::SipMethod;
+    use crate::message::uri::Uri;
+    use crate::transaction::{TsxPlugin};
+    use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
+    use crate::transport::{Packet, TransportHandle, TransportMessage};
+    use crate::ua_layer::dialog::DialogPlugin;
+
+    #[macro_export]
+    macro_rules! assert_eq_tsx_state {
+        ($watcher:expr, $state:expr $(,)?) => {
+            $crate::assert_eq_state!($watcher, $state,)
+        };
+        ($watcher:expr, $state:expr, $($arg:tt)+) => {{
+            let new_state =  {
+                match tokio::time::timeout(std::time::Duration::from_millis(50), $watcher.recv()).await {
+                    Ok(Err(err)) => panic!("{}", format!("The channel has been closed: {err}")),
+                    Err(_) => panic!("timeout!"),
+                    Ok(Ok(state)) => state,
+                }
+            };
+            assert_eq!(new_state, $state, $($arg)+);
+        }};
+    }
+
+    pub async fn create_test_endpoint() -> Endpoint {
+        EndpointBuilder::new()
+            .with_udp_addr("127.0.0.1:0")
+            .with_plugin(DialogPlugin::default())
+            .with_plugin(TsxPlugin::default())
+            .build()
+            .await
+            .unwrap()
+    }
+
+    fn create_test_headers(method: SipMethod) -> Headers {
+        let branch = crate::generate_branch();
+
+        let via = Via::from_str(&format!(
+            "SIP/2.0/UDP localhost:5060;branch={branch};received=127.0.0.1"
+        ))
+        .unwrap();
+        let from = From::from_str("Alice <sip:alice@localhost>;tag=1928301774").unwrap();
+        let to = To::from_str("Bob <sip:bob@localhost>").unwrap();
+        let cid = CallId::from("a84b4c76e66710@pc33.atlanta.com");
+        let mfowards = MaxForwards::new(70);
+        let cseq = CSeq::new(1, method);
+
+        crate::headers! {
+            Header::Via(via),
+            Header::From(from),
+            Header::To(to),
+            Header::CallId(cid),
+            Header::CSeq(cseq),
+            Header::MaxForwards(mfowards)
+        }
+    }
+
+    pub fn create_test_request(method: SipMethod, transport: TransportHandle) -> IncomingRequest {
+        let headers = create_test_headers(method);
+        let target = format!("sip:{}", transport.local_addr());
+        let uri = Uri::from_str(&target).unwrap();
+
+        let mandatory_headers = MandatoryHeaders::from_headers(&headers).unwrap();
+
+        let request = Request::with_headers(method, uri, headers);
+        let packet = Packet::new(Bytes::new(), transport.local_addr());
+
+        let transport_msg = TransportMessage { packet, transport };
+
+        let incoming_info = IncomingInfo {
+            transport_msg,
+            mandatory_headers,
+        };
+
+        IncomingRequest {
+            request,
+            incoming_info: Box::new(incoming_info),
+        }
+    }
+}

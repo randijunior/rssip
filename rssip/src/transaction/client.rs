@@ -1,5 +1,3 @@
-/// Unit tests
-
 use std::net::SocketAddr;
 
 use tokio::sync::mpsc::{self};
@@ -11,10 +9,9 @@ use crate::message::Request;
 use crate::message::headers::via::Rport;
 use crate::message::headers::{Header, Via};
 use crate::message::method::SipMethod;
-use crate::transaction::Role;
 use crate::transaction::fsm::{State, StateMachine};
-use crate::transaction::manager::TransactionKey;
 use crate::transaction::timers::{T1, T4};
+use crate::transaction::{Role, TransactionKey};
 use crate::transport::TransportHandle;
 use crate::transport::incoming::{IncomingMessage, IncomingResponse};
 use crate::transport::outgoing::OutgoingRequest;
@@ -276,5 +273,1014 @@ impl Drop for ClientTransaction {
     fn drop(&mut self) {
         self.endpoint.tsx_plugin().remove_transaction(&self.key);
         log::trace!("Transaction Destroyed [{:#?}] ({:p})", Role::Uac, &self);
+    }
+}
+
+/// Unit tests
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::assert_eq_tsx_state as assert_eq_state;
+    use crate::message::status_code::StatusCode;
+    use crate::test_utils;
+    use crate::transaction::fsm;
+    use crate::transaction::timers::T2;
+    use crate::transport::incoming::{IncomingInfo, IncomingRequest};
+    use crate::transport::{MockTransport, Packet, TransportMessage};
+
+    struct ClientTestContext {
+        client: ClientTransaction,
+        server: MockServerTsx,
+        transport: MockTransport,
+        state: fsm::TsxStateChangeReceiver,
+        timer: MockTimer,
+    }
+
+    struct MockServerTsx {
+        sender: mpsc::Sender<IncomingMessage>,
+        request: IncomingRequest,
+        endpoint: Endpoint,
+    }
+
+    struct MockTimer(Duration);
+
+    impl ClientTestContext {
+        async fn setup(method: SipMethod) -> Self {
+            Self::new(method, MockTransport::new_udp()).await
+        }
+
+        async fn setup_reliable(method: SipMethod) -> Self {
+            Self::new(method, MockTransport::new_tcp()).await
+        }
+
+        async fn new(method: SipMethod, transport: MockTransport) -> Self {
+            let tp_handle = TransportHandle::new(transport.clone());
+            let timer = MockTimer::new();
+
+            let endpoint = test_utils::create_test_endpoint().await;
+            let incoming = test_utils::create_test_request(method, tp_handle.clone());
+
+            let destination = incoming.incoming_info.transport_msg.packet.source;
+
+            let target = (tp_handle, destination);
+
+            let mut client = ClientTransaction::send_request_with_target(
+                incoming.request.clone(),
+                endpoint.clone(),
+                target,
+            )
+            .await
+            .expect("failure sending request");
+
+            let expected_state = if method == SipMethod::Invite {
+                fsm::State::Calling
+            } else {
+                fsm::State::Trying
+            };
+
+            assert_eq!(
+                client.state(),
+                expected_state,
+                "Transaction state should transition to {expected_state} after sending request"
+            );
+
+            let sender = endpoint.tsx_plugin().get_entry(client.key()).unwrap();
+
+            let server = MockServerTsx {
+                sender,
+                request: incoming,
+                endpoint,
+            };
+
+            let state = client.state_machine_mut().subscribe_state();
+
+            Self {
+                client,
+                server,
+                transport,
+                timer,
+                state,
+            }
+        }
+    }
+
+    impl MockServerTsx {
+        pub async fn respond(&self, code: StatusCode) {
+            let mandatory_headers = self.request.incoming_info.mandatory_headers.clone();
+            let outgoing = self
+                .endpoint
+                .create_outgoing_response(&self.request, code, None);
+
+            let packet = Packet::new(
+                outgoing.encoded,
+                self.request.incoming_info.transport_msg.packet.source,
+            );
+
+            let transport_msg = TransportMessage {
+                packet,
+                transport: self.request.incoming_info.transport_msg.transport.clone(),
+            };
+            let info = IncomingInfo {
+                transport_msg,
+                mandatory_headers,
+            };
+
+            let response = IncomingResponse {
+                response: outgoing.response,
+                incoming_info: Box::new(info),
+            };
+
+            let transaction_message = IncomingMessage::Response(response);
+
+            self.sender.send(transaction_message).await.unwrap();
+        }
+    }
+
+    impl MockTimer {
+        fn new() -> Self {
+            Self(T1)
+        }
+
+        fn set_next_interval(&mut self) {
+            self.0 = std::cmp::min(self.0 * 2, T2);
+        }
+
+        async fn wait_interval(&self) {
+            time::sleep(self.0).await;
+        }
+
+        async fn wait_for_retransmissions(&mut self, n: usize) {
+            for _ in 0..n {
+                self.wait_interval().await;
+                self.set_next_interval();
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn invite_should_not_start_timer_a_when_transport_is_reliable() {
+        let mut ctx = ClientTestContext::setup_reliable(SipMethod::Invite).await;
+        let expected_requests = 1;
+        let expected_retrans = 0;
+
+        let opt_err = ctx.client.receive_provisional_response().await.err();
+
+        std::assert_matches!(
+            opt_err,
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
+        );
+
+        assert_eq!(
+            ctx.transport.sent_count(),
+            expected_requests + expected_retrans,
+            "sent count should match {expected_requests} requests and {expected_retrans} retransmissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_proceeding_when_receiving_1xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving 1xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_completed_when_receiving_3xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_completed_when_receiving_4xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_completed_when_receiving_5xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_completed_when_receiving_6xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_calling_to_terminated_when_receiving_2xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Accepted).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "client INVITE must transition to the Terminated state when receiving 2xx response"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn invite_transitions_from_calling_to_terminated_when_timer_b_fires() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        let opt_err = ctx.client.receive_provisional_response().await.err();
+
+        std::assert_matches!(
+            opt_err,
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
+        );
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "client INVITE must transition to the Terminated state when timer B fires"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_3xx_response_in_calling_state() {
+        let ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_4xx_response_in_calling_state() {
+        let ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_5xx_response_in_calling_state() {
+        let ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_6xx_response_in_calling_state() {
+        let ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_proceeding_to_completed_when_receiving_3xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_proceeding_to_completed_when_receiving_4xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_proceeding_to_completed_when_receiving_5xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_proceeding_to_completed_when_receiving_6xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_transitions_from_proceeding_to_terminated_when_receiving_2xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Accepted).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "client INVITE must transition to the Completed state when receiving receiving 2xx response"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn invite_should_not_retransmit_request_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+        let expected_requests = 1;
+        let expected_retrans = 0;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.timer.wait_for_retransmissions(5).await;
+
+        assert_eq!(
+            ctx.transport.sent_count(),
+            expected_requests + expected_retrans
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_3xx_response_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_after_4xx_response_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_when_receiving_5xx_response_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_send_ack_after_6xx_response_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        let req = ctx.transport.last_sent_request().expect("A request");
+        assert_eq!(
+            req.req_line.method,
+            SipMethod::Ack,
+            "client INVITE must generate an ACK request when receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_should_pass_provisional_responses_to_tu_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+        ctx.server.respond(StatusCode::Ringing).await;
+
+        let incoming = ctx
+            .client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq!(
+            incoming.response.status_line.code,
+            StatusCode::Trying,
+            "should match 100 status code"
+        );
+
+        let incoming = ctx
+            .client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq!(
+            incoming.response.status_line.code,
+            StatusCode::Ringing,
+            "should match 180 status code"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn invite_transitions_from_completed_to_terminated_when_timer_d_fires() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Invite).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client INVITE must transition to the Completed state when receiving 3xx response"
+        );
+
+        tokio::time::sleep(T1 * 64).await;
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "client INVITE must transition to the Terminated state when timer D fires"
+        );
+    }
+
+    // Non-INVITE Client tests
+
+    #[tokio::test(start_paused = true)]
+    async fn non_invite_should_not_start_timer_e_when_transport_is_reliable() {
+        let mut ctx = ClientTestContext::setup_reliable(SipMethod::Invite).await;
+        let expected_requests = 1;
+        let expected_retrans = 0;
+
+        let opt_err = ctx.client.receive_provisional_response().await.err();
+
+        std::assert_matches!(
+            opt_err,
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
+        );
+
+        assert_eq!(
+            ctx.transport.sent_count(),
+            expected_requests + expected_retrans,
+            "sent count should match {expected_requests} requests and {expected_retrans} retransmissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_proceeding_when_receiving_1xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Register).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client non-INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_completed_when_receiving_2xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_completed_when_receiving_3xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_completed_when_receiving_4xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_completed_when_receiving_5xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_trying_to_completed_when_receiving_6xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 6xx response"
+        );
+    }
+    #[tokio::test]
+    async fn non_invite_transitions_from_proceeding_to_completed_when_receiving_3xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 3xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_proceeding_to_completed_when_receiving_4xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::NotFound).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 4xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_proceeding_to_completed_when_receiving_5xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::ServerTimeout).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 5xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_proceeding_to_completed_when_receiving_6xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::Decline).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 6xx response"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_transitions_from_proceeding_to_completed_when_receiving_2xx_response() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::Accepted).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 2xx response"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn non_invite_transitions_from_trying_to_terminated_when_timer_f_fires() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Register).await;
+
+        let opt_err = ctx.client.receive_provisional_response().await.err();
+
+        std::assert_matches!(
+            opt_err,
+            Some(Error::Transaction(TransactionError::Timeout)),
+            "Expected Transaction::Timeout, got {opt_err:?}"
+        );
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "client non-INVITE must transition to the Terminated state when timer F fires"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn non_invite_should_not_retransmit_request_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+        let expected_requests = 1;
+        let expected_retrans = 0;
+
+        ctx.server.respond(StatusCode::Trying).await;
+
+        ctx.client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Proceeding,
+            "client non-INVITE must transition to the Proceeding state when receiving receiving 1xx response"
+        );
+
+        ctx.timer.wait_for_retransmissions(5).await;
+
+        assert_eq!(
+            ctx.transport.sent_count(),
+            expected_requests + expected_retrans,
+            "sent count should match {expected_requests} requests and {expected_retrans} retransmissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_invite_should_pass_provisional_responses_to_tu_in_proceeding_state() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::Trying).await;
+        ctx.server.respond(StatusCode::Ringing).await;
+
+        let response = ctx
+            .client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq!(
+            response.response.status_line.code,
+            StatusCode::Trying,
+            "should match 100 status code"
+        );
+
+        let response = ctx
+            .client
+            .receive_provisional_response()
+            .await
+            .expect("Error receiving provisional response")
+            .expect("Expected provisional response, but received None");
+
+        assert_eq!(
+            response.response.status_line.code,
+            StatusCode::Ringing,
+            "should match 180 status code"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn non_invite_transitions_from_completed_to_terminated_when_timer_k_fires() {
+        let mut ctx = ClientTestContext::setup(SipMethod::Options).await;
+
+        ctx.server.respond(StatusCode::MovedPermanently).await;
+
+        ctx.client
+            .receive_final_response()
+            .await
+            .expect("Error receiving final response");
+
+        assert_eq_state!(
+            ctx.state,
+            State::Completed,
+            "client non-INVITE must transition to the Completed state when receiving receiving 3xx response"
+        );
+
+        tokio::time::sleep(T1 * 64).await;
+
+        assert_eq_state!(
+            ctx.state,
+            State::Terminated,
+            "should transition to Terminated after timer d fires"
+        );
     }
 }
