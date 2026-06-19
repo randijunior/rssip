@@ -1,4 +1,4 @@
-use sdp::msg::SessionDescription;
+use crate::msg::SessionDescription;
 
 use crate::error::Result;
 
