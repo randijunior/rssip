@@ -244,3 +244,29 @@ impl<N> ops::DerefMut for Session<Established, N> {
         &mut self.state.rx
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::message::method::SipMethod;
+    use crate::test_utils::{create_test_endpoint, create_test_request};
+    use crate::transport::MockTransport;
+    use crate::transport::TransportHandle;
+
+    fn create_test_invite() -> IncomingRequest {
+        let transport = TransportHandle::new(MockTransport::new_udp());
+        create_test_request(SipMethod::Invite, transport)
+    }
+
+    #[tokio::test]
+    async fn test_session_from_invitation_with_late_offer() {
+        let endpoint = create_test_endpoint().await;
+        let request = create_test_invite();
+        let contact = "test <sip:localhost:5969>".parse().unwrap();
+        let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
+
+        let session = Session::from_invitation(server_tsx, contact, endpoint);
+
+        assert!(session.is_ok());
+    }
+}
