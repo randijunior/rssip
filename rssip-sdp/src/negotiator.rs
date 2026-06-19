@@ -1,6 +1,5 @@
-use crate::msg::SessionDescription;
-
 use crate::error::Result;
+use crate::msg::SessionDescription;
 
 // RFC 3264: An Offer/Answer Model with the Session Description Protocol (SDP)
 

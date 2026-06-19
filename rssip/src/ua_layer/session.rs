@@ -1,6 +1,7 @@
 use std::ops;
 
 use sdp::msg::SessionDescription;
+use sdp::negotiator::{Done, LocalOffer, Negotiator, RemoteOffer, WaitNego};
 use tokio::sync::mpsc;
 
 use crate::message::SipBody;
@@ -9,7 +10,6 @@ use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
 use crate::transaction::ServerTransaction;
 use crate::ua_layer::dialog::Dialog;
-use sdp::negotiator::{Done, LocalOffer, Negotiator, RemoteOffer, WaitNego};
 use crate::{Endpoint, Error, IncomingRequest, Result};
 
 // Offer                Answer             RFC    Ini Est Early
@@ -139,7 +139,10 @@ impl Session<Incoming, LocalOffer> {
             None => return Err(Error::Other(format!("Missing body on ACK request",))),
         };
 
-        let nego = self.nego.process_answer(sdp).map_err(|err| crate::Error::Other(err.to_string()))?;
+        let nego = self
+            .nego
+            .process_answer(sdp)
+            .map_err(|err| crate::Error::Other(err.to_string()))?;
 
         Ok(Session {
             state: Established::new(dialog, endpoint),
@@ -156,7 +159,10 @@ impl Session<Incoming, WaitNego> {
             endpoint,
         } = self.state;
 
-        let nego = self.nego.negotiate().map_err(|err| crate::Error::Other(err.to_string()))?;
+        let nego = self
+            .nego
+            .negotiate()
+            .map_err(|err| crate::Error::Other(err.to_string()))?;
 
         // TODO: Add sdp to final response
         dialog.final_response(server_tsx, status_code).await?;
