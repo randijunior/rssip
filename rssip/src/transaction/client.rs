@@ -30,7 +30,7 @@ pub struct ClientTransaction {
 }
 
 impl ClientTransaction {
-    pub(crate) async fn send_request(request: Request, endpoint: Endpoint) -> Result<Self> {
+    pub async fn send_request(request: Request, endpoint: Endpoint) -> Result<Self> {
         Self::send(request, endpoint, None).await
     }
 
@@ -279,23 +279,20 @@ impl Drop for ClientTransaction {
 /// Unit tests
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
-    use crate::assert_eq_tsx_state as assert_eq_state;
     use crate::message::status_code::StatusCode;
-    use crate::test_utils;
     use crate::transaction::fsm;
-    use crate::transaction::timers::T2;
+    use crate::transaction::timers::MockRetransTimer;
     use crate::transport::incoming::{IncomingInfo, IncomingRequest};
     use crate::transport::{MockTransport, Packet, TransportMessage};
+    use crate::{assert_eq_tsx_state as assert_eq_state, test_utils};
 
     struct ClientTestContext {
         client: ClientTransaction,
         server: MockServerTsx,
         transport: MockTransport,
         state: fsm::TsxStateChangeReceiver,
-        timer: MockTimer,
+        timer: MockRetransTimer,
     }
 
     struct MockServerTsx {
@@ -303,8 +300,6 @@ mod tests {
         request: IncomingRequest,
         endpoint: Endpoint,
     }
-
-    struct MockTimer(Duration);
 
     impl ClientTestContext {
         async fn setup(method: SipMethod) -> Self {
@@ -317,7 +312,7 @@ mod tests {
 
         async fn new(method: SipMethod, transport: MockTransport) -> Self {
             let tp_handle = TransportHandle::new(transport.clone());
-            let timer = MockTimer::new();
+            let timer = MockRetransTimer::new();
 
             let endpoint = test_utils::create_test_endpoint().await;
             let incoming = test_utils::create_test_request(method, tp_handle.clone());
@@ -395,28 +390,6 @@ mod tests {
             let transaction_message = IncomingMessage::Response(response);
 
             self.sender.send(transaction_message).await.unwrap();
-        }
-    }
-
-    impl MockTimer {
-        fn new() -> Self {
-            Self(T1)
-        }
-
-        fn set_next_interval(&mut self) {
-            self.0 = std::cmp::min(self.0 * 2, T2);
-        }
-
-        async fn wait_interval(&self) {
-            time::sleep(self.0).await;
-        }
-
-        async fn wait_for_retransmissions(&mut self, n: usize) {
-            for _ in 0..n {
-                self.wait_interval().await;
-                self.set_next_interval();
-                tokio::task::yield_now().await;
-            }
         }
     }
 
