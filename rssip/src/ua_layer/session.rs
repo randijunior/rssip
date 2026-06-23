@@ -45,7 +45,7 @@ pub enum Cause {
 }
 
 impl Session<Incoming> {
-    pub fn from_invitation(
+    pub fn from_invite_tsx(
         server_tsx: ServerTransaction,
         contact: Contact,
         endpoint: Endpoint,
@@ -174,7 +174,7 @@ mod tests {
         let contact = "test <sip:localhost:5969>".parse().unwrap();
         let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
 
-        let session = Session::from_invitation(server_tsx, contact, endpoint);
+        let session = Session::from_invite_tsx(server_tsx, contact, endpoint);
 
         assert!(session.is_ok());
     }
