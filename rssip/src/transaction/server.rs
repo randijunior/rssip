@@ -365,11 +365,11 @@ impl Drop for ServerTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::status_code::StatusCode;
     use crate::transaction::fsm;
     use crate::transaction::timers::MockRetransTimer;
+    use crate::transport::incoming::IncomingRequest;
     use crate::transport::{MockTransport, TransportHandle};
-    use crate::message::status_code::StatusCode;
-    use crate::transport::incoming::{IncomingRequest};
     use crate::{assert_eq_tsx_state as assert_eq_state, test_utils};
 
     struct ServerTestContext {

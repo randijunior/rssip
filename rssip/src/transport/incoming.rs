@@ -28,6 +28,12 @@ impl ops::Deref for IncomingRequest {
     }
 }
 
+impl ops::DerefMut for IncomingRequest {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.request
+    }
+}
+
 /// This type represents an received SIP response.
 #[derive(Clone)]
 pub struct IncomingResponse {
@@ -41,6 +47,12 @@ impl ops::Deref for IncomingResponse {
     type Target = Response;
     fn deref(&self) -> &Self::Target {
         &self.response
+    }
+}
+
+impl ops::DerefMut for IncomingResponse {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.response
     }
 }
 

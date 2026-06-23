@@ -10,6 +10,9 @@ pub enum Error {
 
     #[error("empty time description")]
     SdpTimeDescriptionNotFound,
+
+    #[error("Invalid Negotiator State")]
+    InvalidNegoStateError,
 }
 
 #[derive(Debug, Error, PartialEq)]

@@ -1,77 +1,48 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::msg::SessionDescription;
 
 // RFC 3264: An Offer/Answer Model with the Session Description Protocol (SDP)
-
 #[derive(Default)]
-pub struct Negotiator<N> {
-    neg: N,
+pub struct Negotiator {
+    remote_offer: Option<SessionDescription>,
+    local_offer: Option<SessionDescription>,
+    state: NegoState,
 }
 
-pub struct RemoteOffer {
-    remote: SessionDescription,
+#[derive(Default, Debug, PartialEq, Eq)]
+enum NegoState {
+    #[default]
+    Init,
+    RemoteOffer,
+    LocalOffer,
+    Negotiating,
+    Done,
 }
 
-pub struct LocalOffer {
-    local: SessionDescription,
-}
-
-pub struct WaitNego {
-    local: LocalOffer,
-    remote: RemoteOffer,
-}
-
-struct Negotiated {
-    negotiated: SessionDescription,
-}
-
-pub struct Done {
-    local: LocalOffer,
-    remote: RemoteOffer,
-
-    negotiated: Negotiated,
-}
-
-impl LocalOffer {
-    pub fn new(local: SessionDescription) -> Self {
-        Self { local }
+impl Negotiator {
+    pub fn from_remote(remote: SessionDescription) -> Self {
+        Self {
+            remote_offer: Some(remote),
+            local_offer: None,
+            state: NegoState::RemoteOffer,
+        }
     }
-}
 
-impl RemoteOffer {
-    pub fn new(remote: SessionDescription) -> Self {
-        Self { remote }
+    pub fn is_negotiating(&self) -> bool {
+        self.state == NegoState::Negotiating
     }
-}
 
-impl Negotiator<()> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn set_local_sdp(&mut self, local: SessionDescription) -> Result<()> {
+        self.state = match self.state {
+            NegoState::Init => NegoState::LocalOffer,
+            NegoState::RemoteOffer => NegoState::Negotiating,
+            _ => return Err(Error::InvalidNegoStateError),
+        };
+        self.local_offer = Some(local);
+        Ok(())
     }
-}
 
-impl Negotiator<RemoteOffer> {
-    // Early Offer
-    pub fn from_remote(remote: RemoteOffer) -> Self {
-        todo!()
-    }
-    pub fn set_local_offer(self, local: LocalOffer) -> Negotiator<WaitNego> {
-        todo!()
-    }
-}
-
-impl Negotiator<LocalOffer> {
-    // Late Offer
-    pub fn from_local(local: LocalOffer) -> Self {
-        Self { neg: local }
-    }
-    pub fn process_answer(self, sdp: SessionDescription) -> Result<Negotiator<Done>> {
-        todo!()
-    }
-}
-
-impl Negotiator<WaitNego> {
-    pub fn negotiate(self) -> Result<Negotiator<Done>> {
+    pub fn generate_answer(&self) -> Result<()> {
         todo!()
     }
 }

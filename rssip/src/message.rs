@@ -226,6 +226,12 @@ impl From<&[u8]> for SipBody {
     }
 }
 
+impl From<bytes::Bytes> for SipBody {
+    fn from(data: bytes::Bytes) -> Self {
+        Self::new(data)
+    }
+}
+
 impl ops::Deref for SipBody {
     type Target = [u8];
 

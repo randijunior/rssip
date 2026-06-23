@@ -50,15 +50,8 @@ pub enum Error {
     #[error("error: {0}")]
     Other(String),
 
-    #[error(
-        "Attempt to create a DelayedOffer Session but the INVITE has a body. Try calling `Session::from_invitation_with_sdp`"
-    )]
-    ErrUnexpectedSdpBody,
-
-    #[error(
-        "Attempt to create an EarlyOffer Session but the INVITE has no body. Try calling `Session::from_invitation`"
-    )]
-    ErrMissingSdpBody,
+    #[error("error: {0}")]
+    SdpError(#[from] sdp::error::Error),
 }
 
 impl Error {

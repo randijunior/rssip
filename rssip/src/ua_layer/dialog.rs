@@ -93,7 +93,7 @@ impl Dialog {
         server_tsx: &mut ServerTransaction,
         status_code: StatusCode,
     ) -> Result<()> {
-        let response = self.create_response(&server_tsx, status_code);
+        let response = self.create_response(server_tsx, status_code);
 
         server_tsx.send_provisional_response(response).await?;
 
