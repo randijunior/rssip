@@ -2,7 +2,7 @@ use utils::scanner::{is_newline, is_space};
 use utils::{LookupTable, Scanner, lookup_table};
 
 use crate::error::{ParseSdpError, Result};
-use crate::msg::*;
+use super::*;
 
 type SdpField = u8;
 

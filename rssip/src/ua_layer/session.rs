@@ -1,8 +1,8 @@
 use std::ops;
 
-use sdp::msg::SessionDescription;
-use sdp::negotiator::Negotiator;
-use sdp::parser::SdpParser;
+use media::sdp::SessionDescription;
+use media::sdp::negotiator::Negotiator;
+use media::sdp::parser::SdpParser;
 use tokio::sync::mpsc;
 
 use crate::message::SipBody;

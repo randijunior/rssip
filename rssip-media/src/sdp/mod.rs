@@ -5,6 +5,9 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::error::Error;
 
+pub mod negotiator;
+pub mod parser;
+
 pub type Uri = String;
 
 pub type SessionName = String;

@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 utils.workspace = true
 tokio.workspace = true
-sdp.workspace = true
+media.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
 hickory-resolver = "0.25.0"

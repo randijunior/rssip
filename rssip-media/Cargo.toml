@@ -1,5 +1,5 @@
 [package]
-name = "rssip-sdp"
+name = "rssip-media"
 version = "0.1.0"
 edition.workspace = true
 

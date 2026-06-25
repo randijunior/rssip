@@ -51,7 +51,7 @@ pub enum Error {
     Other(String),
 
     #[error("error: {0}")]
-    SdpError(#[from] sdp::error::Error),
+    MediaError(#[from] media::error::Error),
 }
 
 impl Error {

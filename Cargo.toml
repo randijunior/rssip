@@ -1,5 +1,5 @@
 [workspace]
-members = ["rssip-utils", "examples", "rssip-sdp", "rssip"]
+members = ["rssip-utils", "examples", "rssip-media", "rssip"]
 
 resolver = "2"
 
@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-sdp = { path = "rssip-sdp", package = "rssip-sdp" }
+media = { path = "rssip-media", package = "rssip-media" }
 utils = { path = "rssip-utils", package = "rssip-utils" }
 tokio = { version = "1.41.1", features = [
     "net",

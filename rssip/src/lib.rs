@@ -18,7 +18,7 @@ pub use core::endpoint::Endpoint;
 pub use core::{endpoint, resolver};
 
 pub use error::Result;
-pub use sdp;
+pub use media;
 pub use transport::incoming::{IncomingMessage, IncomingRequest, IncomingResponse};
 pub use transport::outgoing::{OutgoingRequest, OutgoingResponse};
 pub mod utils {
