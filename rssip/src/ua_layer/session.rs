@@ -18,7 +18,7 @@ use crate::{Endpoint, Error, IncomingRequest, Result};
 // 1. INVITE Req.          2xx INVITE Resp.     RFC 3261  Y   Y    N
 // 2. 2xx INVITE Resp.     ACK Req.             RFC 3261  Y   Y    N
 
-pub struct Session<S> {
+pub struct InviteSession<S> {
     state: S,
     nego: Negotiator,
 }
@@ -30,10 +30,10 @@ pub struct Incoming {
 }
 
 pub struct Established {
-    rx: mpsc::Receiver<SessionEvent>,
+    rx: mpsc::Receiver<InviteSessionEvent>,
 }
 
-pub enum SessionEvent {
+pub enum InviteSessionEvent {
     Terminated(Cause),
     ReInvite(IncomingRequest),
     Options(IncomingRequest),
@@ -44,7 +44,7 @@ pub enum Cause {
     ByeReceived,
 }
 
-impl Session<Incoming> {
+impl InviteSession<Incoming> {
     pub fn from_invite_tsx(
         server_tsx: ServerTransaction,
         contact: Contact,
@@ -60,7 +60,7 @@ impl Session<Incoming> {
             Negotiator::default()
         };
         let dialog = Dialog::create_uas(invite, contact, endpoint.clone())?;
-        Ok(Session {
+        Ok(InviteSession {
             state: Incoming {
                 dialog,
                 endpoint,
@@ -87,7 +87,7 @@ impl Session<Incoming> {
     }
 }
 
-impl<S> Session<S> {
+impl<S> InviteSession<S> {
     fn get_sdp(body: &SipBody) -> Result<SessionDescription> {
         let sdp = SdpParser::parse(body.as_ref())?;
         Ok(sdp)
@@ -96,10 +96,10 @@ impl<S> Session<S> {
 
 impl Established {
     fn new(dialog: Dialog, endpoint: Endpoint) -> Self {
-        let (tx, rx) = mpsc::channel::<SessionEvent>(10);
+        let (tx, rx) = mpsc::channel::<InviteSessionEvent>(10);
 
         tokio::spawn(async move {
-            if let Err(err) = Self::session_loop(dialog, endpoint, tx).await {
+            if let Err(err) = Self::InviteSession_loop(dialog, endpoint, tx).await {
                 log::error!("Failed to handle dialog msg: {}", err);
             }
         });
@@ -107,15 +107,15 @@ impl Established {
         Self { rx }
     }
 
-    async fn session_loop(
+    async fn InviteSession_loop(
         mut dialog: Dialog,
         endpoint: Endpoint,
-        tx: mpsc::Sender<SessionEvent>,
+        tx: mpsc::Sender<InviteSessionEvent>,
     ) -> Result<()> {
         while let Ok(request) = dialog.recv_request().await {
             match request.req_line.method {
                 SipMethod::Invite => {
-                    tx.send(SessionEvent::ReInvite(request))
+                    tx.send(InviteSessionEvent::ReInvite(request))
                         .await
                         .map_err(|_| Error::ChannelClosed)?;
                     break;
@@ -124,7 +124,7 @@ impl Established {
                     let bye_tsx = ServerTransaction::from_request(request, endpoint);
                     dialog.final_response(bye_tsx, StatusCode::Ok).await?;
 
-                    tx.send(SessionEvent::Terminated(Cause::ByeReceived))
+                    tx.send(InviteSessionEvent::Terminated(Cause::ByeReceived))
                         .await
                         .map_err(|_| Error::ChannelClosed)?;
 
@@ -141,15 +141,15 @@ impl Established {
     }
 }
 
-impl ops::Deref for Session<Established> {
-    type Target = mpsc::Receiver<SessionEvent>;
+impl ops::Deref for InviteSession<Established> {
+    type Target = mpsc::Receiver<InviteSessionEvent>;
 
     fn deref(&self) -> &Self::Target {
         &self.state.rx
     }
 }
 
-impl ops::DerefMut for Session<Established> {
+impl ops::DerefMut for InviteSession<Established> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.state.rx
     }
@@ -168,14 +168,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_session_with_late_offer() {
+    async fn test_InviteSession_with_late_offer() {
         let endpoint = create_test_endpoint().await;
         let request = create_test_invite();
         let contact = "test <sip:localhost:5969>".parse().unwrap();
         let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
 
-        let session = Session::from_invite_tsx(server_tsx, contact, endpoint);
+        let InviteSession = InviteSession::from_invite_tsx(server_tsx, contact, endpoint);
 
-        assert!(session.is_ok());
+        assert!(InviteSession.is_ok());
     }
 }

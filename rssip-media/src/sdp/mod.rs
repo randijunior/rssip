@@ -431,3 +431,12 @@ pub struct RtpMap {
     pub clock_rate: u32,
     pub param: Option<String>,
 }
+
+#[derive(Debug, PartialEq, Eq, Default)]
+pub enum MediaDirection {
+    #[default]
+    SendRecv,
+    RecvOnly,
+    SendOnly,
+    Inactive,
+}
