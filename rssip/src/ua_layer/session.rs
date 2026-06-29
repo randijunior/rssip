@@ -99,7 +99,7 @@ impl Established {
         let (tx, rx) = mpsc::channel::<InviteSessionEvent>(10);
 
         tokio::spawn(async move {
-            if let Err(err) = Self::InviteSession_loop(dialog, endpoint, tx).await {
+            if let Err(err) = Self::session_loop(dialog, endpoint, tx).await {
                 log::error!("Failed to handle dialog msg: {}", err);
             }
         });
@@ -107,7 +107,7 @@ impl Established {
         Self { rx }
     }
 
-    async fn InviteSession_loop(
+    async fn session_loop(
         mut dialog: Dialog,
         endpoint: Endpoint,
         tx: mpsc::Sender<InviteSessionEvent>,
@@ -168,14 +168,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_InviteSession_with_late_offer() {
+    async fn test_session_with_late_offer() {
         let endpoint = create_test_endpoint().await;
         let request = create_test_invite();
         let contact = "test <sip:localhost:5969>".parse().unwrap();
         let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
 
-        let InviteSession = InviteSession::from_invite_tsx(server_tsx, contact, endpoint);
+        let session = InviteSession::from_invite_tsx(server_tsx, contact, endpoint);
 
-        assert!(InviteSession.is_ok());
+        assert!(session.is_ok());
     }
 }
