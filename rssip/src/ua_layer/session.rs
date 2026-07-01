@@ -5,10 +5,10 @@ use media::sdp::negotiator::Negotiator;
 use media::sdp::parser::SdpParser;
 use tokio::sync::mpsc;
 
-use crate::message::SipBody;
 use crate::message::headers::Contact;
 use crate::message::method::SipMethod;
 use crate::message::status_code::StatusCode;
+use crate::message::{ReasonPhrase, SipBody};
 use crate::transaction::ServerTransaction;
 use crate::ua_layer::dialog::Dialog;
 use crate::{Endpoint, Error, IncomingRequest, Result};
@@ -17,6 +17,8 @@ use crate::{Endpoint, Error, IncomingRequest, Result};
 // -------------------------------------------------------------------
 // 1. INVITE Req.          2xx INVITE Resp.     RFC 3261  Y   Y    N
 // 2. 2xx INVITE Resp.     ACK Req.             RFC 3261  Y   Y    N
+
+// MediaSessionConfig / MediaConfig / MediaSessionParameters
 
 pub struct InviteSession<S> {
     state: S,
@@ -70,20 +72,53 @@ impl InviteSession<Incoming> {
         })
     }
 
-    pub fn set_local_offer(&mut self, offer: SessionDescription) -> Result<()> {
-        self.nego.set_local_sdp(offer)?;
-        Ok(())
-    }
-
     // RFC 3261 13.3.1.1
-    pub async fn progress(&mut self, status_code: StatusCode) -> Result<()> {
+    pub async fn progress(
+        &mut self,
+        status_code: StatusCode,
+        reason_phrase: Option<ReasonPhrase>,
+    ) -> Result<()> {
         let Incoming {
             server_tsx, dialog, ..
         } = &mut self.state;
 
-        dialog.provisional_response(server_tsx, status_code).await?;
+        dialog
+            .provisional_response(server_tsx, status_code, reason_phrase)
+            .await?;
 
         Ok(())
+    }
+
+    pub async fn accept(
+        mut self,
+        status_code: StatusCode,
+        reason_phrase: Option<ReasonPhrase>,
+        local_sdp: SessionDescription,
+    ) -> Result<InviteSession<Established>> {
+        let sdp = self.create_sdp_answer(local_sdp)?;
+
+        let Incoming {
+            server_tsx,
+            dialog,
+            endpoint,
+        } = self.state;
+
+        let mut sip_response = dialog.create_response(&server_tsx, status_code, reason_phrase);
+        sip_response.body = Some(sdp);
+
+        server_tsx.send_final_response(sip_response).await?;
+
+        Ok(InviteSession {
+            state: Established::new(dialog, endpoint),
+            nego: self.nego,
+        })
+    }
+
+    fn create_sdp_answer(&mut self, offer: SessionDescription) -> Result<SipBody> {
+        self.nego.set_local_sdp(offer)?;
+        let answer = self.nego.create_answer()?;
+        let encoded = answer.encode_sdp()?;
+        Ok(encoded.into())
     }
 }
 

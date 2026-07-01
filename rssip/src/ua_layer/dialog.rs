@@ -6,6 +6,7 @@ use tokio::time;
 
 use crate::core::endpoint::{self, ToTake};
 use crate::error::{Error, Result};
+use crate::message::ReasonPhrase;
 use crate::message::headers::{CallId, Contact, From, Header, Headers, To};
 use crate::message::method::SipMethod;
 use crate::message::param::Params;
@@ -92,8 +93,9 @@ impl Dialog {
         &mut self,
         server_tsx: &mut ServerTransaction,
         status_code: StatusCode,
+        reason_phrase: Option<ReasonPhrase>,
     ) -> Result<()> {
-        let response = self.create_response(server_tsx, status_code);
+        let response = self.create_response(server_tsx, status_code, reason_phrase);
 
         server_tsx.send_provisional_response(response).await?;
 
@@ -109,19 +111,20 @@ impl Dialog {
         server_tsx: ServerTransaction,
         status_code: StatusCode,
     ) -> Result<()> {
-        let response = self.create_response(&server_tsx, status_code);
+        let response = self.create_response(&server_tsx, status_code, None);
 
         server_tsx.send_final_response(response).await?;
 
         Ok(())
     }
 
-    fn create_response(
+    pub(super) fn create_response(
         &self,
         server_tsx: &ServerTransaction,
         status_code: StatusCode,
+        reason_phrase: Option<ReasonPhrase>,
     ) -> OutgoingResponse {
-        let mut response = server_tsx.create_response(status_code, None);
+        let mut response = server_tsx.create_response(status_code, reason_phrase);
         let headers = &mut response.headers;
 
         let allow = self.endpoint.allow();

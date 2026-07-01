@@ -1,4 +1,3 @@
-use crate::codec::Codec;
 use crate::error::{Error, Result};
 use crate::sdp::SessionDescription;
 
@@ -56,7 +55,7 @@ impl Negotiator {
         Ok(())
     }
 
-    pub fn generate_answer(&self) -> Result<()> {
+    pub fn create_answer(&self) -> Result<&SessionDescription> {
         todo!()
     }
 }
