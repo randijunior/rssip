@@ -99,7 +99,7 @@ impl InviteSession<Incoming> {
 
         let Incoming {
             server_tsx,
-            dialog,
+            mut dialog,
             endpoint,
         } = self.state;
 
@@ -107,6 +107,8 @@ impl InviteSession<Incoming> {
         sip_response.body = Some(sdp);
 
         server_tsx.send_final_response(sip_response).await?;
+
+        let _ack = dialog.wait_for_ack().await?;
 
         Ok(InviteSession {
             state: Established::new(dialog, endpoint),
