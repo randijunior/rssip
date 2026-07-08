@@ -62,9 +62,7 @@ impl WebSocketTransport {
         let mut request = url.into_client_request().map_err(IoError::other)?;
 
         let uri = request.uri();
-        let is_tls = uri.scheme_str() == Some("wss") || uri.scheme_str() == Some("https");
-
-        if is_tls {
+        if uri.scheme_str() == Some("wss") || uri.scheme_str() == Some("https") {
             ensure_rustls_provider();
         }
         request
@@ -373,9 +371,14 @@ fn make_http_response(status: u16, message: &'static str) -> Response<Full<bytes
 }
 
 fn ensure_rustls_provider() {
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .expect("Failed to install default rustls crypto provider");
-    }
+    static INIT_CRYPTO: Once = Once::new();
+
+    INIT_CRYPTO.call_once(|| {
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            // https://github.com/snapview/tokio-tungstenite/issues/353
+            rustls::crypto::ring::default_provider()
+                .install_default()
+                .expect("Failed to install default rustls crypto provider");
+        }
+    });
 }
