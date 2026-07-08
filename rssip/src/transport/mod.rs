@@ -187,7 +187,11 @@ impl TransportLayer {
         if let TransportProtocol::Tcp = protocol {
             TcpTransport::connect(socket_addr, self).await
         } else if let TransportProtocol::Ws | TransportProtocol::Wss = protocol {
-            let url = format!("{protocol}://{socket_addr}");
+            let url = if protocol == TransportProtocol::Ws {
+                format!("ws://{socket_addr}")
+            } else {
+                format!("wss://{socket_addr}")
+            };
             let timeout = Duration::from_secs(1);
             WebSocketTransport::connect(url, timeout, self).await
         } else {

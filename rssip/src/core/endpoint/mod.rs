@@ -430,7 +430,10 @@ impl Endpoint {
                         .await
                     {
                         Ok(selected) => break 'label (selected, socket_addr),
-                        Err(_) => continue,
+                        Err(err) => {
+                            log::error!("{}", err);
+                            continue
+                        },
                     };
                 }
 

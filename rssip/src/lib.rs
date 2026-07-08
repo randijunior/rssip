@@ -22,6 +22,7 @@ pub use media;
 pub use transport::incoming::{IncomingMessage, IncomingRequest, IncomingResponse};
 pub use transport::outgoing::{OutgoingRequest, OutgoingResponse};
 pub mod utils {
+    pub use crate::generate_tag_n;
     pub use utils::local_ip;
 }
 
@@ -50,7 +51,7 @@ pub(crate) fn generate_branch_n(n: usize) -> String {
     branch
 }
 
-pub(crate) fn generate_tag_n(n: usize) -> String {
+pub fn generate_tag_n(n: usize) -> String {
     random_str(n)
 }
 

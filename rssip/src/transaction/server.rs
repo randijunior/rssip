@@ -34,7 +34,7 @@ impl ServerTransaction {
     /// # Panics
     ///
     /// Panics if request method is `ACK`.
-    pub(crate) fn from_request(request: IncomingRequest, endpoint: Endpoint) -> Self {
+    pub fn from_request(request: IncomingRequest, endpoint: Endpoint) -> Self {
         let method = request.req_line.method;
         assert_ne!(
             method,
@@ -261,6 +261,10 @@ impl ServerTransaction {
 
     pub(crate) fn request(&self) -> &IncomingRequest {
         &self.request
+    }
+
+    pub(crate) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     pub fn is_invite_tsx(&self) -> bool {

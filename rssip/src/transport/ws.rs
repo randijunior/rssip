@@ -4,6 +4,7 @@ use std::convert::Infallible;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::net::SocketAddr;
 use std::result::Result as StdResult;
+use std::sync::Once;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -11,8 +12,8 @@ use futures_util::{SinkExt, StreamExt};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::header::{
-    CONNECTION, HeaderValue, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL,
-    SEC_WEBSOCKET_VERSION, UPGRADE,
+    CONNECTION, HeaderValue, ORIGIN, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY,
+    SEC_WEBSOCKET_PROTOCOL, SEC_WEBSOCKET_VERSION, UPGRADE,
 };
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -33,7 +34,8 @@ use crate::transport::{
     Packet, SipTransport, TransportHandle, TransportLayer, TransportMessage, TransportProtocol,
 };
 
-const SIP: HeaderValue = HeaderValue::from_static("sip");
+const WS_PROTOCOL: HeaderValue = HeaderValue::from_static("sip");
+const WS_ORIGIN: HeaderValue = HeaderValue::from_static("http://127.0.0.1");
 
 type BytesBody = http_body_util::Full<hyper::body::Bytes>;
 
@@ -59,7 +61,16 @@ impl WebSocketTransport {
     ) -> Result<TransportHandle> {
         let mut request = url.into_client_request().map_err(IoError::other)?;
 
-        request.headers_mut().insert(SEC_WEBSOCKET_PROTOCOL, SIP);
+        let uri = request.uri();
+        let is_tls = uri.scheme_str() == Some("wss") || uri.scheme_str() == Some("https");
+
+        if is_tls {
+            ensure_rustls_provider();
+        }
+        request
+            .headers_mut()
+            .insert(SEC_WEBSOCKET_PROTOCOL, WS_PROTOCOL);
+        request.headers_mut().insert(ORIGIN, WS_ORIGIN);
 
         let (stream, _response) = tokio::time::timeout(timeout, connect_async(request))
             .await
@@ -272,7 +283,7 @@ impl WebSocketListener {
         headers_mut.append(UPGRADE, upgrade);
         headers_mut.append(CONNECTION, connection);
         headers_mut.append(SEC_WEBSOCKET_ACCEPT, accept);
-        headers_mut.append(SEC_WEBSOCKET_PROTOCOL, SIP);
+        headers_mut.append(SEC_WEBSOCKET_PROTOCOL, WS_PROTOCOL);
 
         Ok(response)
     }
@@ -359,4 +370,12 @@ fn make_http_response(status: u16, message: &'static str) -> Response<Full<bytes
         .header("Content-Type", "text/plain")
         .body(BytesBody::from(message))
         .unwrap()
+}
+
+fn ensure_rustls_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install default rustls crypto provider");
+    }
 }
