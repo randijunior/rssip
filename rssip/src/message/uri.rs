@@ -288,7 +288,7 @@ impl fmt::Display for Uri {
         }
 
         if let Some(transport) = &self.transport_param {
-            write!(f, ";transport={}", transport)?;
+            write!(f, ";transport={}", transport.as_lower_case())?;
         }
 
         if let Some(ttl) = self.ttl_param {

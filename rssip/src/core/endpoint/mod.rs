@@ -445,7 +445,7 @@ impl Endpoint {
         };
         log::debug!(
             "Resolved target: transport={}, addr={}",
-            transport.protocol(),
+            transport.protocol().as_upper_case(),
             socket_addr
         );
 

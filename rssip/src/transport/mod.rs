@@ -236,7 +236,7 @@ impl TransportLayer {
                 log::warn!(
                     "Ignoring {} bytes packet from {} {} : {}\n{}-- end of packet.",
                     packet.data.len(),
-                    transport.protocol(),
+                    transport.protocol().as_upper_case(),
                     packet.source,
                     err,
                     String::from_utf8_lossy(&packet.data)
@@ -368,15 +368,25 @@ impl TransportProtocol {
         !self.is_reliable()
     }
 
-    pub(crate) fn from_naptr_service(service: &[u8]) -> Option<Self> {
-        match service {
-            b"SIP+D2T" => Some(Self::Tcp),
-            b"SIPS+D2T" => Some(Self::Tls),
-            b"SIP+D2U" => Some(Self::Udp),
-            b"SIP+D2S" | b"SIPS+D2S" => Some(Self::Sctp),
-            b"SIP+D2W" => Some(Self::Ws),
-            b"SIPS+D2W" => Some(Self::Wss),
-            _ => None,
+    pub const fn as_lower_case(self) -> &'static str {
+        match self {
+            Self::Udp => "udp",
+            Self::Tcp => "tcp",
+            Self::Ws => "ws",
+            Self::Wss => "wss",
+            Self::Tls => "tls",
+            Self::Sctp => "sctp",
+        }
+    }
+
+    pub const fn as_upper_case(self) -> &'static str {
+        match self {
+            Self::Udp => "UDP",
+            Self::Tcp => "TCP",
+            Self::Tls => "TLS",
+            Self::Sctp => "SCTP",
+            Self::Ws => "WS",
+            Self::Wss => "WSS",
         }
     }
 
@@ -427,26 +437,6 @@ impl TryFrom<&str> for TransportProtocol {
     }
 }
 
-impl TryFrom<String> for TransportProtocol {
-    type Error = ();
-
-    fn try_from(s: String) -> StdResult<Self, Self::Error> {
-        Self::from_str(&s)
-    }
-}
-
-impl fmt::Display for TransportProtocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Udp => "UDP",
-            Self::Tcp => "TCP",
-            Self::Tls => "TLS",
-            Self::Sctp => "SCTP",
-            Self::Ws => "WS",
-            Self::Wss => "WSS",
-        })
-    }
-}
 
 impl<T> From<&T> for TransportKey
 where

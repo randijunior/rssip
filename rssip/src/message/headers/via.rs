@@ -146,7 +146,7 @@ impl fmt::Display for Via {
             "{}: {}/{} {}",
             Self::NAME,
             SIPV2,
-            self.transport,
+            self.transport.as_upper_case(),
             self.sent_by
         )?;
 
