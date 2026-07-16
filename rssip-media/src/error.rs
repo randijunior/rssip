@@ -1,5 +1,7 @@
 pub type Result<T> = std::result::Result<T, Error>;
 
+use std::num::ParseIntError;
+
 use thiserror::Error;
 use utils::ScannerError;
 
@@ -11,8 +13,14 @@ pub enum Error {
     #[error("empty time description")]
     SdpTimeDescriptionNotFound,
 
-    #[error("Invalid Negotiator State")]
-    InvalidNegoStateError,
+    #[error("Negotiation is Done")]
+    ErrNegotiationIsDone,
+
+    #[error("Invalid Negotiation State")]
+    ErrInvalidNegoState,
+
+    #[error("parse int: {0}")]
+    ParseInt(#[from] ParseIntError),
 }
 
 #[derive(Debug, Error, PartialEq)]

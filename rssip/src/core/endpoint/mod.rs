@@ -205,9 +205,8 @@ impl Endpoint {
         }
 
         log::debug!(
-            "Sending Request {} {} to /{}",
+            "Sending Request {} to /{}",
             request.request.req_line.method,
-            request.request.req_line.uri,
             request.target_info.socket_addr
         );
 

@@ -1,7 +1,4 @@
 use std::fmt::{self, Formatter, Result as FmtResult};
-use std::io::{self, Write};
-
-use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::error::Error;
 
@@ -116,16 +113,17 @@ impl SessionDescription {
         }
     }
 
-    pub fn encode_sdp(&self) -> Result<Bytes, io::Error> {
-        let buf = BytesMut::new();
-        let mut writer = buf.writer();
+    pub fn encode_sdp(&self) -> Result<String, std::fmt::Error> {
+        use std::fmt::Write;
+
+        let mut buff = String::new();
 
         // v=0
-        write!(writer, "v=0\r\n")?;
+        write!(&mut buff, "v=0\r\n")?;
 
         // o=<username> <sess-id> <sess-version> <nettype> <addrtype> <unicast-address>
         write!(
-            writer,
+            &mut buff,
             "o={} {} {} {} {} {}\r\n",
             self.origin.user,
             self.origin.session_id,
@@ -136,50 +134,50 @@ impl SessionDescription {
         )?;
 
         // s=<session name>
-        write!(writer, "s={}\r\n", self.session_name)?;
+        write!(&mut buff, "s={}\r\n", self.session_name)?;
 
         // i=<session information>
         if let Some(session_information) = &self.session_information {
-            write!(writer, "i={}\r\n", session_information)?;
+            write!(&mut buff, "i={}\r\n", session_information)?;
         }
         // u=<uri>
         if let Some(uri) = &self.uri {
-            write!(writer, "u={}\r\n", uri)?;
+            write!(&mut buff, "u={}\r\n", uri)?;
         }
         // e=<email-address>
         if let Some(email_address) = &self.email_address {
-            write!(writer, "e={}\r\n", email_address)?;
+            write!(&mut buff, "e={}\r\n", email_address)?;
         }
         // p=<phone-number>
         if let Some(phone_number) = &self.phone_number {
-            write!(writer, "p={}\r\n", phone_number)?;
+            write!(&mut buff, "p={}\r\n", phone_number)?;
         }
         // c=<nettype> <addrtype> <connection-address>
         if let Some(c) = &self.connection_information {
             write!(
-                writer,
+                &mut buff,
                 "c={} {} {}\r\n",
                 c.nettype, c.addrtype, c.conection_address
             )?;
         }
         //  b=<bwtype>:<bandwidth>
         for b in self.bandwidth_information.iter() {
-            write!(writer, "b={}:{}\r\n", b.bwtype, b.bandwidth)?;
+            write!(&mut buff, "b={}:{}\r\n", b.bwtype, b.bandwidth)?;
         }
         // t=<start-time> <stop-time>
         for t in self.time.iter() {
             write!(
-                writer,
+                &mut buff,
                 "t={} {}\r\n",
                 t.time_active.start_time, t.time_active.stop_time
             )?;
             // r=<repeat interval> <active duration> <offsets from start-time>
             for r in t.repeat_times.iter() {
-                write!(writer, "r={} {}", r.repeat_interval, r.active_duration)?;
+                write!(&mut buff, "r={} {}", r.repeat_interval, r.active_duration)?;
                 for offset in r.offsets.iter() {
-                    write!(writer, " {}", offset)?;
+                    write!(&mut buff, " {}", offset)?;
                 }
-                write!(writer, "\r\n")?;
+                write!(&mut buff, "\r\n")?;
             }
         }
 
@@ -189,35 +187,35 @@ impl SessionDescription {
                     name,
                     value: Some(v),
                 } => {
-                    write!(writer, "a={}:{}\r\n", name, v)?;
+                    write!(&mut buff, "a={}:{}\r\n", name, v)?;
                 }
                 Attribute { name, value: None } => {
-                    write!(writer, "a={}\r\n", name)?;
+                    write!(&mut buff, "a={}\r\n", name)?;
                 }
             }
         }
 
         // m=<media> <port> <proto> <fmt> ...
         for m in self.media.iter() {
-            write!(writer, "m={} {}", m.media_type, m.port)?;
+            write!(&mut buff, "m={} {}", m.media_type, m.port)?;
             if let Some(n) = m.number_of_ports {
-                write!(writer, "/{}", n)?;
+                write!(&mut buff, "/{}", n)?;
             }
-            write!(writer, " {}", m.proto)?;
+            write!(&mut buff, " {}", m.proto)?;
 
             for fmt in m.media_formats.iter() {
-                write!(writer, " {}", fmt)?;
+                write!(&mut buff, " {}", fmt)?;
             }
-            write!(writer, "\r\n")?;
+            write!(&mut buff, "\r\n")?;
 
             if let Some(title) = &m.title {
-                write!(writer, "t={}\r\n", title)?;
+                write!(&mut buff, "t={}\r\n", title)?;
             }
 
             // c=* (connection information -- optional if included at session level)
             if let Some(c) = &m.connection_information {
                 write!(
-                    writer,
+                    &mut buff,
                     "c={} {} {}\r\n",
                     c.nettype, c.addrtype, c.conection_address
                 )?;
@@ -225,7 +223,7 @@ impl SessionDescription {
 
             // b=* (zero or more bandwidth information lines)
             for b in m.bandwidth_information.iter() {
-                write!(writer, "b={}:{}\r\n", b.bwtype, b.bandwidth)?;
+                write!(&mut buff, "b={}:{}\r\n", b.bwtype, b.bandwidth)?;
             }
 
             // a=* (zero or more media attribute lines)
@@ -235,16 +233,16 @@ impl SessionDescription {
                         name,
                         value: Some(v),
                     } => {
-                        write!(writer, "a={}:{}\r\n", name, v)?;
+                        write!(&mut buff, "a={}:{}\r\n", name, v)?;
                     }
                     Attribute { name, value: None } => {
-                        write!(writer, "a={}\r\n", name)?;
+                        write!(&mut buff, "a={}\r\n", name)?;
                     }
                 }
             }
         }
 
-        Ok(writer.into_inner().freeze())
+        Ok(buff)
     }
 }
 
@@ -359,8 +357,9 @@ pub struct Origin {
     pub unicast_address: String,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default, Copy)]
 pub enum MediaType {
+    #[default]
     Audio,
     Video,
     Text,
@@ -382,7 +381,7 @@ impl fmt::Display for MediaType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Copy)]
 pub enum SdpTransport {
     UDP,
     RTPAVP,

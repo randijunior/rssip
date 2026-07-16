@@ -50,13 +50,12 @@ impl InviteSession<Incoming> {
     pub fn from_invite_tsx(
         server_tsx: ServerTransaction,
         contact: Contact,
-        endpoint: Endpoint,
     ) -> Result<Self> {
         let invite = server_tsx.request();
+        let endpoint = server_tsx.endpoint().clone();
         let nego = if let Some(body) = &invite.body {
             // EarlyOffer
-            let sdp = Self::get_sdp(body)?;
-            Negotiator::from_remote(sdp)
+            Negotiator::with_remote(Self::get_sdp(body)?)
         } else {
             // DelayedOffer
             Negotiator::default()
@@ -120,7 +119,7 @@ impl InviteSession<Incoming> {
         self.nego.set_local_sdp(offer)?;
         let answer = self.nego.create_answer()?;
         let encoded = answer.encode_sdp()?;
-        Ok(encoded.into())
+        Ok(bytes::Bytes::from(encoded).into())
     }
 }
 
@@ -209,9 +208,9 @@ mod tests {
         let endpoint = create_test_endpoint().await;
         let request = create_test_invite();
         let contact = "test <sip:localhost:5969>".parse().unwrap();
-        let server_tsx = ServerTransaction::from_request(request, endpoint.clone());
+        let server_tsx = ServerTransaction::from_request(request, endpoint);
 
-        let session = InviteSession::from_invite_tsx(server_tsx, contact, endpoint);
+        let session = InviteSession::from_invite_tsx(server_tsx, contact);
 
         assert!(session.is_ok());
     }
