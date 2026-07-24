@@ -22,8 +22,9 @@ pub use media;
 pub use transport::incoming::{IncomingMessage, IncomingRequest, IncomingResponse};
 pub use transport::outgoing::{OutgoingRequest, OutgoingResponse};
 pub mod utils {
-    pub use crate::generate_tag_n;
     pub use utils::local_ip;
+
+    pub use crate::generate_tag_n;
 }
 
 use std::fmt::{self, Debug};
@@ -202,23 +203,6 @@ mod test_utils {
     use crate::transport::incoming::{IncomingInfo, IncomingRequest, MandatoryHeaders};
     use crate::transport::{Packet, TransportHandle, TransportMessage};
     use crate::ua_layer::dialog::DialogPlugin;
-
-    #[macro_export]
-    macro_rules! assert_eq_tsx_state {
-        ($watcher:expr, $state:expr $(,)?) => {
-            $crate::assert_eq_state!($watcher, $state,)
-        };
-        ($watcher:expr, $state:expr, $($arg:tt)+) => {{
-            let new_state =  {
-                match tokio::time::timeout(std::time::Duration::from_millis(50), $watcher.recv()).await {
-                    Ok(Err(err)) => panic!("{}", format!("The channel has been closed: {err}")),
-                    Err(_) => panic!("timeout!"),
-                    Ok(Ok(state)) => state,
-                }
-            };
-            assert_eq!(new_state, $state, $($arg)+);
-        }};
-    }
 
     pub async fn create_test_endpoint() -> Endpoint {
         EndpointBuilder::new()

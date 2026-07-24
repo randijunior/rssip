@@ -158,7 +158,7 @@ impl Dialog {
         response
     }
 
-    pub async fn recv(&mut self) -> Result<IncomingMessage> {
+    pub(super) async fn recv(&mut self) -> Result<IncomingMessage> {
         let Some(msg) = self.receiver.recv().await else {
             return Err(Error::ChannelClosed);
         };
@@ -170,7 +170,7 @@ impl Dialog {
         Ok(msg)
     }
 
-    pub async fn recv_request(&mut self) -> Result<IncomingRequest> {
+    pub(super) async fn recv_request(&mut self) -> Result<IncomingRequest> {
         loop {
             if let IncomingMessage::Request(req) = self.recv().await? {
                 return Ok(req);

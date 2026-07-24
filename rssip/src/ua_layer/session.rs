@@ -47,10 +47,7 @@ pub enum Cause {
 }
 
 impl InviteSession<Incoming> {
-    pub fn from_invite_tsx(
-        server_tsx: ServerTransaction,
-        contact: Contact,
-    ) -> Result<Self> {
+    pub fn from_invite_tsx(server_tsx: ServerTransaction, contact: Contact) -> Result<Self> {
         let invite = server_tsx.request();
         let endpoint = server_tsx.endpoint().clone();
         let nego = if let Some(body) = &invite.body {

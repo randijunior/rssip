@@ -17,8 +17,7 @@ pub struct Codecs {
     codecs: Vec<Codec>,
 }
 
-
-impl Codecs {    
+impl Codecs {
     pub fn push(&mut self, codec: Codec) {
         self.codecs.push(codec);
     }

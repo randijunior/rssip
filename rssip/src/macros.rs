@@ -16,6 +16,23 @@ macro_rules! parse_params {
     }};
 }
 
+#[cfg(test)]
+macro_rules! assert_eq_tsx_state {
+    ($watcher:expr, $state:expr $(,)?) => {
+        $crate::macros::assert_eq_tsx_state!($watcher, $state,)
+    };
+    ($watcher:expr, $state:expr, $($arg:tt)+) => {{
+        let new_state =  {
+                match tokio::time::timeout(std::time::Duration::from_millis(50), $watcher.recv()).await {
+                    Ok(Err(err)) => panic!("{}", format!("The channel has been closed: {err}")),
+                    Err(_) => panic!("timeout!"),
+                    Ok(Ok(state)) => state,
+                }
+            };
+            assert_eq!(new_state, $state, $($arg)+);
+        }};
+    }
+
 macro_rules! collect_elems_separated_by_comma {
     ($parser:expr, $func:block) => {{
         let mut itens = Vec::with_capacity(1);
@@ -81,5 +98,11 @@ macro_rules! find_map_mut_header {
     };
 }
 
-pub(crate) use {collect_elems_separated_by_comma, parse_params};
-pub use {filter_map_header, find_map_header, find_map_mut_header, headers};
+#[cfg(test)]
+pub(crate) use assert_eq_tsx_state;
+pub(crate) use collect_elems_separated_by_comma;
+pub use filter_map_header;
+pub use find_map_header;
+pub use find_map_mut_header;
+pub use headers;
+pub(crate) use parse_params;

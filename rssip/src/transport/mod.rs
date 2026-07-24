@@ -437,7 +437,6 @@ impl TryFrom<&str> for TransportProtocol {
     }
 }
 
-
 impl<T> From<&T> for TransportKey
 where
     T: SipTransport + ?Sized,

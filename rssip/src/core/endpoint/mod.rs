@@ -431,8 +431,8 @@ impl Endpoint {
                         Ok(selected) => break 'label (selected, socket_addr),
                         Err(err) => {
                             log::error!("{}", err);
-                            continue
-                        },
+                            continue;
+                        }
                     };
                 }
 

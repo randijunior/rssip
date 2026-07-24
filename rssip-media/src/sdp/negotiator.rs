@@ -90,7 +90,7 @@ impl Negotiator {
             if local.media_type != remote.media_type {
                 todo!("return err");
             }
-            
+
             if local.proto != remote.proto {
                 todo!("return err");
             }
@@ -142,7 +142,7 @@ impl Negotiator {
                     })
                     .map(ToOwned::to_owned)
                     .collect();
-                
+
                 media_attrs.push(Attribute {
                     name: media_direction,
                     value: None,
@@ -183,12 +183,14 @@ impl Negotiator {
 
         Ok(answer_ref)
     }
-    
+
     pub fn answer(&self) -> Option<&SessionDescription> {
         self.answer.as_ref()
     }
 
-    pub fn add_local_media_stream(&mut self, stream: MediaStream) { unimplemented!() }
+    pub fn add_local_media_stream(&mut self, stream: MediaStream) {
+        unimplemented!()
+    }
 }
 
 impl MediaStream {
@@ -226,9 +228,8 @@ impl MediaStreamBuilder {
 #[cfg(test)]
 mod tests {
 
-    use crate::sdp::parser::SdpParser;
-
     use super::*;
+    use crate::sdp::parser::SdpParser;
 
     #[test]
     fn test_simple_offer_answer_exchange() {

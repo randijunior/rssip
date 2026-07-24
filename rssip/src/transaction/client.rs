@@ -280,12 +280,13 @@ impl Drop for ClientTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::assert_eq_tsx_state as assert_eq_state;
     use crate::message::status_code::StatusCode;
+    use crate::test_utils;
     use crate::transaction::fsm;
     use crate::transaction::timers::MockRetransTimer;
     use crate::transport::incoming::{IncomingInfo, IncomingRequest};
     use crate::transport::{MockTransport, Packet, TransportMessage};
-    use crate::{assert_eq_tsx_state as assert_eq_state, test_utils};
 
     struct ClientTestContext {
         client: ClientTransaction,
