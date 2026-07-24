@@ -4,13 +4,14 @@ use std::{io, mem};
 
 use crate::core::endpoint::EndpointInner;
 use crate::core::endpoint::plugin::{Plugin, Plugins};
-use crate::message::headers::{Accept, Allow, Header, Supported};
+use crate::message::headers::{Accept, Allow, Supported};
+use crate::message::media_type::MediaType;
 use crate::message::method::SipMethod;
 use crate::transport::tcp::TcpListener;
 use crate::transport::udp::UdpTransport;
 use crate::transport::ws::WebSocketListener;
 use crate::transport::{SipTransport, TransportHandle, TransportLayer};
-use crate::{Endpoint, MediaType, Result};
+use crate::{Endpoint, Result};
 
 /// Builder for creating a new SIP `Endpoint`.
 pub struct EndpointBuilder {

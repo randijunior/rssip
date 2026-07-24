@@ -1,8 +1,8 @@
 use core::fmt;
 use std::str;
 
-use crate::MediaType;
 use crate::error::Result;
+use crate::message::media_type::{MediaType, MimeType};
 use crate::parser::{HeaderParse, SipParser};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -22,7 +22,7 @@ impl HeaderParse for ContentType {
 impl ContentType {
     pub fn new_sdp() -> Self {
         Self(MediaType {
-            mimetype: crate::MimeType {
+            mimetype: MimeType {
                 mtype: "application".into(),
                 subtype: "sdp".into(),
             },

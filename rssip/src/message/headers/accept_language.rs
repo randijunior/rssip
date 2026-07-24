@@ -5,9 +5,9 @@ use itertools::Itertools;
 use utils::scanner;
 
 use crate::error::Result;
-use crate::message::param::{self, Params};
+use crate::macros;
+use crate::message::param::{self, Params, Q};
 use crate::parser::{HeaderParse, SipParser};
-use crate::{Q, macros};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct AcceptLanguage(Vec<Language>);

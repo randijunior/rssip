@@ -1,10 +1,10 @@
 use core::fmt;
 
 use crate::error::Result;
-use crate::message::param::{EXPIRES_PARAM, Params, Q_PARAM};
+use crate::macros;
+use crate::message::param::{EXPIRES_PARAM, Params, Q, Q_PARAM};
 use crate::message::uri::SipUri;
 use crate::parser::{HeaderParse, SipParser};
-use crate::{Q, macros};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Contact {

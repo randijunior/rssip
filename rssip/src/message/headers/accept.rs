@@ -3,8 +3,9 @@ use std::fmt;
 use itertools::Itertools;
 
 use crate::error::Result;
+use crate::macros;
+use crate::message::media_type::MediaType;
 use crate::parser::{HeaderParse, SipParser};
-use crate::{MediaType, macros};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Accept(Vec<MediaType>);

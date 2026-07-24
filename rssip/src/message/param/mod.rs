@@ -1,7 +1,10 @@
+pub mod q;
+
 use std::{fmt, str};
 
-use crate::{error, parser};
+pub use q::*;
 
+use crate::{error, parser};
 pub(crate) type ParamRef<'a> = (&'a str, Option<&'a str>);
 
 pub(crate) const TAG_PARAM: &str = "tag";
