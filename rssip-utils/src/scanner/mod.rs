@@ -15,16 +15,6 @@ pub fn is_newline(b: u8) -> bool {
     matches!(b, b'\r' | b'\n')
 }
 
-#[must_use]
-pub fn is_alphabetic(b: u8) -> bool {
-    b.is_ascii_alphabetic()
-}
-
-#[must_use]
-pub fn is_digit(b: u8) -> bool {
-    b.is_ascii_digit()
-}
-
 /// A text scanner for sequentially reading bytes from an input slice.
 ///
 /// The `Scanner` provides methods to iterate over the input while

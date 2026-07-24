@@ -513,7 +513,7 @@ impl<'buf> SipParser<'buf> {
 
     fn parse_status_code(&mut self) -> Result<status_code::StatusCode> {
         self.skip_ws();
-        let digits = self.scanner.scan_while(scanner::is_digit);
+        let digits = self.scanner.scan_while(|b| b.is_ascii_digit());
         self.skip_ws();
 
         let code = digits
@@ -779,7 +779,7 @@ impl<'buf> SipParser<'buf> {
 
     #[inline]
     pub fn take_alphabetic(&mut self) -> &'buf [u8] {
-        self.scanner.scan_while(scanner::is_alphabetic)
+        self.scanner.scan_while(|b| b.is_ascii_alphabetic())
     }
 
     #[inline]

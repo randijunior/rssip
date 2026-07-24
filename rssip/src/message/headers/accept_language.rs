@@ -2,7 +2,6 @@ use std::str::FromStr;
 use std::{fmt, str};
 
 use itertools::Itertools;
-use utils::scanner;
 
 use crate::error::Result;
 use crate::macros;
@@ -95,7 +94,7 @@ impl fmt::Display for Language {
 
 impl LanguageTag {
     pub fn parse(parser: &mut SipParser) -> Self {
-        let is_lang = |byte: u8| scanner::is_alphabetic(byte) || matches!(byte, b'*' | b'-');
+        let is_lang = |byte: u8| byte.is_ascii_alphabetic() || matches!(byte, b'*' | b'-');
         let tag = unsafe { parser.read_while_as_str_unchecked(is_lang) };
 
         Self(tag.to_owned())
