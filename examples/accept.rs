@@ -11,7 +11,7 @@ use rssip::message::method::SipMethod;
 use rssip::message::status_code::StatusCode;
 use rssip::transaction::TsxPlugin;
 use rssip::ua::dialog::DialogPlugin;
-use rssip::ua::session::{Established, Session, SessionEvent, SignalingEvent};
+use rssip::ua::session::{DialogEvent, Established, Session, SessionEvent};
 use rssip::utils::local_ip::get_local_ip_addr;
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
@@ -56,11 +56,12 @@ impl endpoint::Plugin for Acceptor {
 async fn session_evt_loop(mut session: Session<Established>) {
     while let Ok(evt) = session.next_event().await {
         match evt {
-            SessionEvent::Signaling(SignalingEvent::Terminated(cause)) => {
-                println!("Terminated, cause = {cause:#?}");
-                break;
+            SessionEvent::Dialog(evt) => {
+                if let DialogEvent::Terminated(cause) = evt {
+                    println!("Terminated, cause = {cause:#?}");
+                    break;
+                }
             }
-            SessionEvent::Signaling(_other) => todo!(),
             SessionEvent::Media(_evt) => todo!(),
         }
     }

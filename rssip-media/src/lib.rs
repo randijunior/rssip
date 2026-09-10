@@ -2,7 +2,10 @@ use std::net::SocketAddr;
 
 use tokio::sync::mpsc;
 
-use crate::{rtp::{packet::RtpPacket}, sdp::SessionDescription};
+use crate::{
+    rtp::{RtpSession, packet::RtpPacket},
+    sdp::{MediaDescription, SessionDescription},
+};
 
 pub mod codec;
 pub mod error;
@@ -14,11 +17,19 @@ pub enum MediaEvent {
     RtpPacket(RtpPacket),
 }
 
-pub struct SessionMedia {
-   
+// CallSession
+// media_address
+// Runs setup_rtp + build_answer + dialog.accept(200).
+
+pub struct MediaSession {
+    
 }
 
-impl SessionMedia {
-    pub async fn setup(sdp: &SessionDescription) -> std::io::Result<Self> { todo!() }
-    pub async fn receive_event(&mut self) -> std::io::Result<MediaEvent> { todo!() }
+impl MediaSession {
+    pub async fn setup(sdp: &SessionDescription) -> std::io::Result<Self> {
+        todo!()
+    }
+    pub async fn receive_event(&mut self) -> std::io::Result<MediaEvent> {
+        todo!()
+    }
 }

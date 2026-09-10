@@ -1,7 +1,7 @@
 use media::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
 use media::sdp::SessionDescription;
 use media::sdp::parser::SdpParser;
-use media::{MediaEvent, SessionMedia};
+use media::{MediaEvent, MediaSession};
 use utils::encode::Encode;
 
 use crate::message::headers::{Contact, ContentType, Header};
@@ -36,17 +36,17 @@ pub struct Calling {
 
 pub struct Established {
     dialog: Dialog,
-    media: SessionMedia,
+    media: MediaSession,
 }
 
 pub enum SessionEvent {
-    Signaling(SignalingEvent),
+    Dialog(DialogEvent),
     Media(MediaEvent),
 }
 
-impl From<SignalingEvent> for SessionEvent {
-    fn from(value: SignalingEvent) -> Self {
-        Self::Signaling(value)
+impl From<DialogEvent> for SessionEvent {
+    fn from(value: DialogEvent) -> Self {
+        Self::Dialog(value)
     }
 }
 
@@ -61,7 +61,7 @@ pub enum Cause {
     ByeReceived,
 }
 
-pub enum SignalingEvent {
+pub enum DialogEvent {
     Terminated(Cause),
     ReInvite(IncomingRequest),
     Options(IncomingRequest),
@@ -199,7 +199,7 @@ impl Session<Calling> {
                 // accepted stream(s)
                 let sdp = self.negotiator.answer().unwrap();
 
-                let media = SessionMedia::setup(sdp).await?;
+                let media = MediaSession::setup(&sdp).await?;
 
                 Ok(Session {
                     state: Established { dialog, media },
@@ -312,7 +312,7 @@ impl Session<Incoming> {
         let sdp = self.negotiator.answer().expect("a offer");
 
         // accepted stream(s)
-        let media = SessionMedia::setup(sdp).await?;
+        let media = MediaSession::setup(&sdp).await?;
 
         Ok(Session {
             state: Established { dialog, media },
@@ -326,7 +326,7 @@ impl Session<Established> {
         let Established { dialog, media } = &mut self.state;
 
         if dialog.state() == DialogState::Terminated {
-            return Ok(SignalingEvent::Terminated(Cause::ByeReceived).into());
+            return Ok(DialogEvent::Terminated(Cause::ByeReceived).into());
         }
 
         tokio::select! {
@@ -336,7 +336,7 @@ impl Session<Established> {
             Ok(request) = dialog.receive_request() => {
                 match request.req_line.method {
                     SipMethod::Invite => {
-                        return Ok(SignalingEvent::ReInvite(request).into());
+                        return Ok(DialogEvent::ReInvite(request).into());
                     }
                     SipMethod::Bye => {
                         let endpoint = dialog.endpoint().clone();
@@ -346,7 +346,7 @@ impl Session<Established> {
 
                         dialog.set_state(DialogState::Terminated);
 
-                        return Ok(SignalingEvent::Terminated(Cause::ByeReceived).into())
+                        return Ok(DialogEvent::Terminated(Cause::ByeReceived).into())
                     }
                     method => {
                         log::debug!("received request: {} (ignoring)", method);
