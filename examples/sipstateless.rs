@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use rssip::IncomingRequest;
-use rssip::endpoint::{self, Endpoint, ToTake};
+use rssip::endpoint::{self, Endpoint, Takeable};
 use rssip::message::method::SipMethod;
 use rssip::message::status_code::StatusCode;
 use tracing::Level;
@@ -15,7 +15,7 @@ impl endpoint::Plugin for SipStateless {
         "sip-stateless"
     }
 
-    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, endpoint: &Endpoint) {
+    async fn incoming_request(&self, mut req: Takeable<'_, IncomingRequest>, endpoint: &Endpoint) {
         let request = if req.req_line.method != SipMethod::Ack {
             req.take()
         } else {

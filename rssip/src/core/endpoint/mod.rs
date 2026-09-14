@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 pub use builder::EndpointBuilder;
 use bytes::Bytes;
-pub use plugin::{Plugin, ToTake};
+pub use plugin::{Plugin, Takeable};
 use utils::encode::Encode;
 
 use self::plugin::Plugins;
@@ -22,13 +22,13 @@ use crate::message::headers::{Accept, Allow, Header, Headers, Route, Supported};
 use crate::message::status_code::StatusCode;
 use crate::message::uri::{Host, HostPort, NameAddr, Uri};
 use crate::message::{ReasonPhrase, Request, Response, StatusLine};
-use crate::ua::dialog::DialogPlugin;
 use crate::transaction::TsxPlugin;
 use crate::transport::incoming::{IncomingRequest, IncomingResponse};
 use crate::transport::outgoing::{
     OutgoingDestInfo, OutgoingRequest, OutgoingResponse, TargetTransportInfo,
 };
 use crate::transport::{TransportHandle, TransportLayer};
+use crate::ua::dialog::DialogPlugin;
 
 struct EndpointInner {
     /// The transport layer for the endpoint.
@@ -172,7 +172,7 @@ impl Endpoint {
         );
 
         for plugin in self.inner.plugins.plugins() {
-            plugin.on_outgoing_request(request).await;
+            plugin.outgoing_request(request).await;
         }
 
         if request.encoded.is_empty() {
@@ -200,7 +200,7 @@ impl Endpoint {
         );
 
         for plugin in self.inner.plugins.plugins() {
-            plugin.on_outgoing_response(response).await;
+            plugin.outgoing_response(response).await;
         }
 
         if response.encoded.is_empty() {
@@ -438,7 +438,7 @@ impl Endpoint {
 
         for plugin in self.inner.plugins.plugins() {
             plugin
-                .on_incoming_response(ToTake::new(&mut response), self)
+                .incoming_response(Takeable::new(&mut response), self)
                 .await;
 
             if response.is_none() {
@@ -467,7 +467,7 @@ impl Endpoint {
 
         for plugin in self.inner.plugins.plugins() {
             plugin
-                .on_incoming_request(ToTake::new(&mut request), self)
+                .incoming_request(Takeable::new(&mut request), self)
                 .await;
 
             if request.is_none() {

@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use rssip::IncomingRequest;
-use rssip::endpoint::{self, Endpoint, ToTake};
+use rssip::endpoint::{self, Endpoint, Takeable};
 use rssip::media::codec::Codec;
 use rssip::media::negotiator::{SdpMediaStream, SdpOfferParams};
 use rssip::media::sdp::{Direction, SdpTransport};
@@ -26,7 +26,7 @@ impl endpoint::Plugin for Acceptor {
         "acceptor"
     }
 
-    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, endpoint: &Endpoint) {
+    async fn incoming_request(&self, mut req: Takeable<'_, IncomingRequest>, endpoint: &Endpoint) {
         let request = if req.req_line.method == SipMethod::Invite {
             req.take()
         } else {
@@ -75,11 +75,11 @@ impl endpoint::Plugin for Logger {
         "logger"
     }
 
-    async fn on_outgoing_response(&self, res: &mut rssip::OutgoingResponse) {
+    async fn outgoing_response(&self, res: &mut rssip::OutgoingResponse) {
         let body_utf8 = get_body_utf8(&res.body);
         println!("{}{}{}", res.status_line, res.headers, body_utf8);
     }
-    async fn on_incoming_request(&self, req: ToTake<'_, IncomingRequest>, _endpoint: &Endpoint) {
+    async fn incoming_request(&self, req: Takeable<'_, IncomingRequest>, _endpoint: &Endpoint) {
         let body_utf8 = get_body_utf8(&req.body);
         println!("{}{}{}", req.req_line, req.headers, body_utf8);
     }

@@ -4,7 +4,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 pub use server::ServerTransaction;
 use tokio::sync::mpsc::{self};
 
-use crate::endpoint::{self, ToTake};
+use crate::endpoint::{self, Takeable};
 use crate::message::method::SipMethod;
 use crate::message::uri::HostPort;
 use crate::transport::incoming::{
@@ -70,7 +70,7 @@ impl endpoint::Plugin for TsxPlugin {
         "tsx"
     }
 
-    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, _: &Endpoint) {
+    async fn incoming_request(&self, mut req: Takeable<'_, IncomingRequest>, _: &Endpoint) {
         let key = TransactionKey::from_request(&req);
 
         let Some(channel) = self.get_entry(&key) else {
@@ -85,7 +85,7 @@ impl endpoint::Plugin for TsxPlugin {
             .unwrap();
     }
 
-    async fn on_incoming_response(&self, mut res: ToTake<'_, IncomingResponse>, _: &Endpoint) {
+    async fn incoming_response(&self, mut res: Takeable<'_, IncomingResponse>, _: &Endpoint) {
         let key = TransactionKey::from_response(&res);
 
         let Some(channel) = self.get_entry(&key) else {

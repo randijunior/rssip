@@ -10,5 +10,7 @@ pub struct RtpPacket {
 pub struct RtpPayload(bytes::Bytes);
 
 impl RtpPacket {
-    pub fn parse(buff: &[u8]) -> io::Result<Self> { todo!() }
+    pub fn parse(buff: &[u8]) -> io::Result<Self> {
+        todo!()
+    }
 }

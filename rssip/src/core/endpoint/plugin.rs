@@ -14,14 +14,13 @@ pub trait Plugin: Downcast + Send + Sync {
 
     fn on_load(&mut self, _builder: &mut EndpointBuilder) {}
 
-    async fn on_incoming_request(&self, _req: ToTake<'_, IncomingRequest>, _endpoint: &Endpoint) {}
+    async fn incoming_request(&self, _req: Takeable<'_, IncomingRequest>, _endpoint: &Endpoint) {}
 
-    async fn on_incoming_response(&self, _res: ToTake<'_, IncomingResponse>, _endpoint: &Endpoint) {
-    }
+    async fn incoming_response(&self, _res: Takeable<'_, IncomingResponse>, _endpoint: &Endpoint) {}
 
-    async fn on_outgoing_request(&self, _req: &mut OutgoingRequest) {}
+    async fn outgoing_request(&self, _req: &mut OutgoingRequest) {}
 
-    async fn on_outgoing_response(&self, _res: &mut OutgoingResponse) {}
+    async fn outgoing_response(&self, _res: &mut OutgoingResponse) {}
 }
 
 impl_downcast!(Plugin);
@@ -31,7 +30,7 @@ pub struct Plugins {
     plugins: Vec<Box<dyn Plugin>>,
 }
 
-pub struct ToTake<'a, T: 'a> {
+pub struct Takeable<'a, T: 'a> {
     inner: &'a mut Option<T>,
 }
 
@@ -53,7 +52,7 @@ impl Plugins {
     }
 }
 
-impl<'a, T: 'a> ToTake<'a, T> {
+impl<'a, T: 'a> Takeable<'a, T> {
     #[must_use]
     pub const fn new(inner: &'a mut Option<T>) -> Self {
         assert!(inner.is_some());
@@ -66,14 +65,14 @@ impl<'a, T: 'a> ToTake<'a, T> {
     }
 }
 
-impl<'a, T> ops::Deref for ToTake<'a, T> {
+impl<'a, T> ops::Deref for Takeable<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.inner.as_ref().unwrap()
     }
 }
 
-impl<'a, T> ops::DerefMut for ToTake<'a, T> {
+impl<'a, T> ops::DerefMut for Takeable<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         self.inner.as_mut().unwrap()
     }

@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use tokio::sync::mpsc;
 use tokio::time;
 
-use crate::core::endpoint::{self, ToTake};
+use crate::core::endpoint::{self, Takeable};
 use crate::error::{Error, Result};
 use crate::message::headers::{CSeq, CallId, Contact, From, Header, Headers, MaxForwards, To};
 use crate::message::method::SipMethod;
@@ -60,7 +60,7 @@ impl endpoint::Plugin for DialogPlugin {
         "dialog"
     }
 
-    async fn on_incoming_request(&self, mut req: ToTake<'_, IncomingRequest>, endpoint: &Endpoint) {
+    async fn incoming_request(&self, mut req: Takeable<'_, IncomingRequest>, endpoint: &Endpoint) {
         let Some(dialog_id) = DialogId::from_incoming_request(&req) else {
             return;
         };
@@ -87,8 +87,7 @@ impl endpoint::Plugin for DialogPlugin {
         }
     }
 
-    async fn on_incoming_response(&self, _res: ToTake<'_, IncomingResponse>, _endpoint: &Endpoint) {
-    }
+    async fn incoming_response(&self, _res: Takeable<'_, IncomingResponse>, _endpoint: &Endpoint) {}
 }
 
 impl Dialog {

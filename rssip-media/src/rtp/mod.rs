@@ -1,7 +1,8 @@
 pub mod header;
 pub mod packet;
 
-use std::{io, net::SocketAddr};
+use std::io;
+use std::net::SocketAddr;
 
 use tokio::net::UdpSocket;
 
@@ -12,10 +13,13 @@ pub struct RtpSession {
     local_addr: SocketAddr,
 
     sock: UdpSocket,
-
     // ssrc: u32
 }
 
+// RtpChunk
+// RtpStream
+//  RtpTransmitter
+//  RtpReceiver
 
 impl RtpSession {
     pub async fn create(local_addr: SocketAddr) -> std::io::Result<Self> {
