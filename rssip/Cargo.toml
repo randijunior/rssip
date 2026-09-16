@@ -21,7 +21,7 @@ tokio-util = {version = "0.7.15", features = ["codec"]}
 tokio-stream = {version = "0.1.17", features = ["net"]}
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23.17", features = ["ring"] }
-futures-util = "0.3.31"
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 hyper = { version = "1.0", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
