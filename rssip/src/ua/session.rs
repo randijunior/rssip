@@ -297,6 +297,10 @@ impl Session<Incoming> {
 
         sip_response.body = Some(SipBody::from(bytes::Bytes::from(body)));
 
+        sip_response
+            .headers
+            .push(Header::ContentType(ContentType::new_sdp()));
+
         server_tsx.send_final_response(sip_response).await?;
 
         let ack = dialog.wait_for_ack().await?;
