@@ -1,7 +1,6 @@
 use media::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
 use media::sdp::SessionDescription;
 use media::sdp::parser::SdpParser;
-use media::{MediaEvent, MediaSession};
 use utils::encode::Encode;
 
 use crate::message::headers::{Contact, ContentType, Header};
@@ -10,7 +9,7 @@ use crate::message::status_code::StatusCode;
 use crate::message::uri::SipUri;
 use crate::message::{ReasonPhrase, SipBody};
 use crate::transaction::{ClientTransaction, ServerTransaction};
-use crate::ua::dialog::{Dialog, DialogState};
+use crate::ua::dialog::Dialog;
 use crate::{Endpoint, Error, IncomingRequest, IncomingResponse, OutgoingRequest, Result};
 
 // Offer                Answer             RFC    Ini Est Early
@@ -34,37 +33,9 @@ pub struct Calling {
     client_tsx: ClientTransaction,
 }
 
-pub struct Established {
-    dialog: Dialog,
-    media: MediaSession,
-}
-
-pub enum SessionEvent {
-    Dialog(DialogEvent),
-    Media(MediaEvent),
-}
-
-impl From<DialogEvent> for SessionEvent {
-    fn from(value: DialogEvent) -> Self {
-        Self::Dialog(value)
-    }
-}
-
-impl From<MediaEvent> for SessionEvent {
-    fn from(value: MediaEvent) -> Self {
-        Self::Media(value)
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
-pub enum Cause {
+pub enum TerminatedCause {
     ByeReceived,
-}
-
-pub enum DialogEvent {
-    Terminated(Cause),
-    ReInvite(IncomingRequest),
-    Options(IncomingRequest),
 }
 
 pub struct InvitationParams {
@@ -74,10 +45,67 @@ pub struct InvitationParams {
     pub sdp: Option<SdpOfferParams>,
 }
 
+#[derive(Debug)]
+pub struct SessionTerminatedEvent {
+    pub cause: TerminatedCause,
+}
+
+pub struct SessionNegotiationDoneEvent<'a> {
+    pub local_sdp: &'a SessionDescription,
+    pub remote_sdp: &'a SessionDescription,
+    pub answer: &'a SessionDescription,
+}
+
+pub trait SessionEventHandler: Send + Sync + 'static {
+    fn on_reinvite(&self, _reinvite: IncomingRequest) -> impl Future<Output = ()> + Send {
+        async {}
+    }
+    fn on_terminated(&self, _evt: SessionTerminatedEvent) -> impl Future<Output = ()> + Send {
+        async {}
+    }
+    fn on_negotiation_done(
+        &self,
+        _evt: SessionNegotiationDoneEvent,
+    ) -> impl Future<Output = ()> + Send {
+        async {}
+    }
+}
+
 impl<S> Session<S> {
     fn parse_sdp(body: &SipBody) -> Result<SessionDescription> {
         let sdp = SdpParser::parse(body.as_ref())?;
         Ok(sdp)
+    }
+
+    async fn session_loop(mut dialog: Dialog, inv_handler: impl SessionEventHandler) -> Result<()> {
+        while let Ok(request) = dialog.receive_request().await {
+            match request.req_line.method {
+                SipMethod::Invite => {
+                    inv_handler.on_reinvite(request).await;
+                    continue;
+                }
+                SipMethod::Bye => {
+                    let endpoint = dialog.endpoint().clone();
+                    let bye_tsx = ServerTransaction::from_request(request, endpoint);
+
+                    dialog.final_response(bye_tsx, StatusCode::Ok).await?;
+
+                    inv_handler
+                        .on_terminated(SessionTerminatedEvent {
+                            cause: TerminatedCause::ByeReceived,
+                        })
+                        .await;
+
+                    break;
+                }
+                method => {
+                    log::debug!("received request: {} (ignoring)", method);
+                    unimplemented!()
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -109,7 +137,7 @@ impl Session<Calling> {
         let mut negotiator = Negotiator::default();
 
         if let Some(params) = sdp {
-            let offer = negotiator.create_offer(params)?;
+            let offer = negotiator.create_offer(&params)?;
             let encoded = offer.encode()?;
 
             negotiator.set_local_offer(offer)?;
@@ -139,8 +167,9 @@ impl Session<Calling> {
 
     pub async fn receive_answer(
         mut self,
-        offer: Option<SdpOfferParams>,
-    ) -> Result<Session<Established>> {
+        offer: Option<&SdpOfferParams>,
+        handler: impl SessionEventHandler,
+    ) -> Result<()> {
         let Calling {
             mut dialog,
             client_tsx,
@@ -193,18 +222,21 @@ impl Session<Calling> {
 
                 endpoint.send_outgoing_request(&mut outgoing).await?;
 
-                // Create Media Session Here? Or let to the application user
-                // ned to create UDP server
+                let local_sdp = self.negotiator.local_offer().expect("a offer");
+                let remote_sdp = self.negotiator.remote_offer().expect("a offer");
+                let answer = self.negotiator.answer().expect("a answer");
 
-                // accepted stream(s)
-                let sdp = self.negotiator.answer().unwrap();
+                handler
+                    .on_negotiation_done(SessionNegotiationDoneEvent {
+                        local_sdp,
+                        remote_sdp,
+                        answer,
+                    })
+                    .await;
 
-                let media = MediaSession::setup(&sdp).await?;
+                tokio::spawn(Self::session_loop(dialog, handler));
 
-                Ok(Session {
-                    state: Established { dialog, media },
-                    negotiator: self.negotiator,
-                })
+                Ok(())
             }
             // 13.2.2.2 3xx Responses
             300..=399 => todo!(),
@@ -269,8 +301,9 @@ impl Session<Incoming> {
         mut self,
         status_code: StatusCode,
         reason_phrase: Option<ReasonPhrase>,
-        sdp_params: SdpOfferParams,
-    ) -> Result<Session<Established>> {
+        sdp_params: &SdpOfferParams,
+        handler: impl SessionEventHandler,
+    ) -> Result<()> {
         let Incoming {
             server_tsx,
             mut dialog,
@@ -313,63 +346,26 @@ impl Session<Incoming> {
             self.negotiator.process_answer(answer)?;
         }
 
-        let sdp = self.negotiator.answer().expect("a offer");
+        let local_sdp = self.negotiator.local_offer().expect("a offer");
+        let remote_sdp = self.negotiator.remote_offer().expect("a offer");
+        let answer = self.negotiator.answer().expect("a answer");
 
-        // accepted stream(s)
-        let media = MediaSession::setup(&sdp).await?;
+        handler
+            .on_negotiation_done(SessionNegotiationDoneEvent {
+                local_sdp,
+                remote_sdp,
+                answer,
+            })
+            .await;
 
-        Ok(Session {
-            state: Established { dialog, media },
-            negotiator: self.negotiator,
-        })
-    }
-}
+        tokio::spawn(Self::session_loop(dialog, handler));
 
-impl Session<Established> {
-    pub async fn next_event(&mut self) -> Result<SessionEvent> {
-        let Established { dialog, media } = &mut self.state;
-
-        if dialog.state() == DialogState::Terminated {
-            return Ok(DialogEvent::Terminated(Cause::ByeReceived).into());
-        }
-
-        tokio::select! {
-            Ok(media) = media.receive_event() => {
-                unimplemented!()
-            }
-            Ok(request) = dialog.receive_request() => {
-                match request.req_line.method {
-                    SipMethod::Invite => {
-                        return Ok(DialogEvent::ReInvite(request).into());
-                    }
-                    SipMethod::Bye => {
-                        let endpoint = dialog.endpoint().clone();
-                        let bye_tsx = ServerTransaction::from_request(request, endpoint);
-
-                        dialog.final_response(bye_tsx, StatusCode::Ok).await?;
-
-                        dialog.set_state(DialogState::Terminated);
-
-                        return Ok(DialogEvent::Terminated(Cause::ByeReceived).into())
-                    }
-                    method => {
-                        log::debug!("received request: {} (ignoring)", method);
-                       unimplemented!()
-                    }
-                }
-            }
-        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
-
-    use media::codec::Codec;
-    use media::negotiator::SdpMediaStream;
-    use media::sdp::{Direction, SdpTransport};
-
     use super::*;
     use crate::message::method::SipMethod;
     use crate::test_utils::{create_test_endpoint, create_test_request};
@@ -404,26 +400,5 @@ mod tests {
         let params = create_test_inv_params();
 
         let _session = Session::send_invite(params, endpoint).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_server_session_accept_invite_with_offer() {
-        let endpoint = create_test_endpoint().await;
-        let request = create_test_invite();
-
-        let contact = "test <sip:localhost:8089>".parse().unwrap();
-
-        let mut session = Session::from_invite(request, contact, endpoint).unwrap();
-
-        session.progress(StatusCode::Trying, None).await.unwrap();
-
-        let sdp = SdpOfferParams::new(IpAddr::from([127, 0, 0, 1]), Direction::SendRecv);
-
-        let sdp = sdp.add_media_stream(
-            SdpMediaStream::audio(34391, SdpTransport::RTPAVP)
-                .with_codecs(vec![Codec::ULAW, Codec::ALAW]),
-        );
-
-        let _session = session.accept(StatusCode::Ok, None, sdp).await.unwrap();
     }
 }
