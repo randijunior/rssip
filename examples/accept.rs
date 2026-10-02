@@ -1,10 +1,11 @@
 use std::error::Error;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use rssip::IncomingRequest;
 use rssip::endpoint::{self, Endpoint, Takeable};
 use rssip::media::codec::Codec;
-use rssip::media::negotiator::{SdpMediaStream, SdpOfferParams};
+use rssip::media::sdp::negotiator::{SdpMediaStream, SdpOfferParams};
 use rssip::media::sdp::{Direction, SdpTransport};
 use rssip::message::SipBody;
 use rssip::message::headers::Contact;
@@ -12,12 +13,25 @@ use rssip::message::method::SipMethod;
 use rssip::message::status_code::StatusCode;
 use rssip::transaction::{ServerTransaction, TsxPlugin};
 use rssip::ua::dialog::DialogPlugin;
-use rssip::ua::session::{
-    Session, SessionEventHandler, SessionNegotiationDoneEvent, SessionTerminatedEvent,
+use rssip::ua::session::Session;
+use rssip::ua::session::event::{
+    SessionEventHandler, SessionNegotiationDoneEvent, SessionTerminatedEvent,
 };
-use rssip::utils::local_ip::get_local_ip_addr;
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
+
+pub struct MyHandler;
+
+impl SessionEventHandler for MyHandler {
+    async fn on_terminated(&self, evt: SessionTerminatedEvent) {
+        println!("Terminated, cause = {:#?}", evt.cause);
+    }
+    
+    async fn on_negotiation_done(&self, _evt: SessionNegotiationDoneEvent<'_>) {
+        println!("Sdp Negotiation Done");
+        // Create RtpSession
+    }
+}
 
 pub struct Acceptor {
     contact: Contact,
@@ -45,15 +59,15 @@ impl endpoint::Plugin for Acceptor {
         } else {
             return;
         };
-        let contact_clone = self.contact.clone();
+        let contact = self.contact.clone();
 
-        let mut session = Session::from_invite(request, contact_clone, endpoint.clone()).unwrap();
+        let mut session = Session::from_invite(request, contact, endpoint.clone()).unwrap();
 
         session.progress(StatusCode::Trying, None).await.unwrap();
 
-        let sdp = SdpOfferParams::new(get_local_ip_addr(), Direction::SendRecv);
+        let sdp = SdpOfferParams::new(IpAddr::from([127, 0, 0, 1]), Direction::SendRecv);
 
-        let media_port = self.media_port.fetch_add(1, Ordering::SeqCst);
+        let media_port = self.media_port.fetch_add(1, Ordering::Relaxed);
 
         let sdp = sdp.add_media_stream(
             SdpMediaStream::audio(media_port, SdpTransport::RTPAVPF)
@@ -64,18 +78,6 @@ impl endpoint::Plugin for Acceptor {
             .accept(StatusCode::Ok, None, &sdp, MyHandler)
             .await
             .unwrap();
-    }
-}
-
-pub struct MyHandler;
-
-impl SessionEventHandler for MyHandler {
-    async fn on_terminated(&self, evt: SessionTerminatedEvent) {
-        println!("Terminated, cause = {:#?}", evt.cause);
-    }
-    async fn on_negotiation_done(&self, _evt: SessionNegotiationDoneEvent<'_>) {
-        println!("Sdp Negotiation Done");
-        // Create RtpSession
     }
 }
 
@@ -116,7 +118,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_plugin(DialogPlugin::default())
         .with_plugin(TsxPlugin::default())
         .with_plugin(Acceptor {
-            media_port: AtomicU16::new(1024),
+            media_port: AtomicU16::new(2048),
             contact: "<sip:0.0.0.0:8089>".parse().unwrap(),
         })
         .with_udp_addr("0.0.0.0:8089")

@@ -83,7 +83,7 @@ impl Negotiator {
     }
 
     // RFC 3264 5 - Generating the Initial Offer
-    pub fn create_offer(&self, params: SdpOfferParams) -> Result<SessionDescription> {
+    pub fn create_offer(&self, params: &SdpOfferParams) -> Result<SessionDescription> {
         // In this model, one participant in the session generates an SDP message that
         // constitutes the offer - the set of media streams and codecs the
         // offerer wishes to use, along with the IP addresses and ports the
@@ -132,6 +132,12 @@ impl Negotiator {
                             attributes.push(Attribute {
                                 name: "rtpmap".to_owned(),
                                 value: Some("8 PCMA/8000".to_owned()),
+                            });
+                        },
+                        "GSM" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("3 GSM/8000".to_owned()),
                             });
                         }
                         "opus" => {
@@ -528,7 +534,7 @@ mod tests {
                     .with_codecs(vec![Codec::ULAW, Codec::ALAW]),
             );
 
-        let offer = negotiator.create_offer(offer_params).unwrap();
+        let offer = negotiator.create_offer(&offer_params).unwrap();
 
         println!("{}", offer.encode().unwrap());
     }

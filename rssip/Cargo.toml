@@ -10,12 +10,12 @@ media.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
 rand.workspace = true
+log.workspace = true
 hickory-resolver = "0.25.0"
 downcast-rs = "2.0.1"
 itertools = "0.13.0"
 async-trait = "0.1.83"
 enum-as-inner = "0.6.1"
-log = "0.4.26"
 tracing = "0.1.41"
 tokio-util = {version = "0.7.15", features = ["codec"]}
 tokio-stream = {version = "0.1.17", features = ["net"]}

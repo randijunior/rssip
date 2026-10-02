@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 
+pub(crate) type PayloadType = u8;
+
 #[derive(Debug, Clone)]
 pub struct Codec {
     name: Cow<'static, str>,
     clock_rate: u32,                          // clock rate in Hz
-    payload_type: u8,                         // pt
+    payload_type: PayloadType,                         // pt
     channels: u16,                            // Number of audio channels (0 for video codecs)
     sdp_fmtp_line: Option<Cow<'static, str>>, // Format-specific parameters as SDP fmtp line
 }
@@ -14,12 +16,13 @@ impl Codec {
     pub const ULAW: Self = Self::new("PCMU", 8000, 0, 1, None);
     pub const ALAW: Self = Self::new("PCMA", 8000, 8, 1, None);
     pub const OPUS: Self = Self::new("opus", 48_000, 96, 2, None);
+    pub const GSM: Self = Self::new("GSM", 8000, 3, 1, None);
     pub const TELEPHONE_EVENT: Self = Self::new("telephone-event", 8000, 101, 1, Some("0-16"));
 
     pub const fn new(
         name: &'static str,
         clock_rate: u32,
-        payload_type: u8,
+        payload_type: PayloadType,
         channels: u16,
         fmtp: Option<&'static str>,
     ) -> Self {
@@ -47,7 +50,7 @@ impl Codec {
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn pt(&self) -> u8 {
+    pub fn pt(&self) -> PayloadType {
         self.payload_type
     }
 }

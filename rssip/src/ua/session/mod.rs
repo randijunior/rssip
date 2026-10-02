@@ -1,5 +1,5 @@
-use media::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
 use media::sdp::SessionDescription;
+use media::sdp::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
 use media::sdp::parser::SdpParser;
 use utils::encode::Encode;
 
@@ -11,6 +11,10 @@ use crate::message::{ReasonPhrase, SipBody};
 use crate::transaction::{ClientTransaction, ServerTransaction};
 use crate::ua::dialog::Dialog;
 use crate::{Endpoint, Error, IncomingRequest, IncomingResponse, OutgoingRequest, Result};
+
+use self::event::*;
+
+pub mod event;
 
 // Offer                Answer             RFC    Ini Est Early
 // -------------------------------------------------------------------
@@ -33,11 +37,6 @@ pub struct Calling {
     client_tsx: ClientTransaction,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum TerminatedCause {
-    ByeReceived,
-}
-
 pub struct InvitationParams {
     pub from_uri: SipUri,
     pub to_uri: SipUri,
@@ -45,79 +44,15 @@ pub struct InvitationParams {
     pub sdp: Option<SdpOfferParams>,
 }
 
-#[derive(Debug)]
-pub struct SessionTerminatedEvent {
-    pub cause: TerminatedCause,
-}
-
-pub struct SessionNegotiationDoneEvent<'a> {
-    pub local_sdp: &'a SessionDescription,
-    pub remote_sdp: &'a SessionDescription,
-    pub answer: &'a SessionDescription,
-}
-
-pub trait SessionEventHandler: Send + Sync + 'static {
-    fn on_reinvite(&self, _reinvite: IncomingRequest) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-    fn on_terminated(&self, _evt: SessionTerminatedEvent) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-    fn on_negotiation_done(
-        &self,
-        _evt: SessionNegotiationDoneEvent,
-    ) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-}
-
-impl<S> Session<S> {
-    fn parse_sdp(body: &SipBody) -> Result<SessionDescription> {
-        let sdp = SdpParser::parse(body.as_ref())?;
-        Ok(sdp)
-    }
-
-    async fn session_loop(mut dialog: Dialog, inv_handler: impl SessionEventHandler) -> Result<()> {
-        while let Ok(request) = dialog.receive_request().await {
-            match request.req_line.method {
-                SipMethod::Invite => {
-                    inv_handler.on_reinvite(request).await;
-                    continue;
-                }
-                SipMethod::Bye => {
-                    let endpoint = dialog.endpoint().clone();
-                    let bye_tsx = ServerTransaction::from_request(request, endpoint);
-
-                    dialog.final_response(bye_tsx, StatusCode::Ok).await?;
-
-                    inv_handler
-                        .on_terminated(SessionTerminatedEvent {
-                            cause: TerminatedCause::ByeReceived,
-                        })
-                        .await;
-
-                    break;
-                }
-                method => {
-                    log::debug!("received request: {} (ignoring)", method);
-                    unimplemented!()
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
 impl Session<Calling> {
     // RFC 3261 13.2.1
-    pub async fn send_invite(inv_params: InvitationParams, endpoint: Endpoint) -> Result<Self> {
+    pub async fn send_invite(params: InvitationParams, endpoint: Endpoint) -> Result<Self> {
         let InvitationParams {
             from_uri,
             to_uri,
             contact,
             sdp,
-        } = inv_params;
+        } = params;
 
         let mut dialog = Dialog::create_uac(from_uri, to_uri, contact, endpoint.clone());
 
@@ -167,7 +102,7 @@ impl Session<Calling> {
 
     pub async fn receive_answer(
         mut self,
-        offer: Option<&SdpOfferParams>,
+        offer_params: Option<&SdpOfferParams>,
         handler: impl SessionEventHandler,
     ) -> Result<()> {
         let Calling {
@@ -177,64 +112,62 @@ impl Session<Calling> {
 
         let response = client_tsx.receive_final_response().await?;
 
+        // fn negotiate_sdp(&self, offer_params: Option<&SdpOfferParams>) {}
+
         match response.status_line.code.as_u16() {
             // 13.2.2.4 2xx Responses
             200..=299 => {
                 let ack_body = if let Some(body) = &response.body {
-                    let negotiator = &mut self.negotiator;
-                    let remote = Self::parse_sdp(body)?;
+                    let remote_sdp = Self::parse_sdp(body)?;
+                    let nego_state = self.negotiator.state();
 
-                    match negotiator.state() {
-                        NegotiatorState::Initial => {
-                            let Some(params) = offer else {
-                                return Err(Error::Custom(
-                                    "offer required to answer a delayed offer".into(),
-                                ));
-                            };
-                            let local = negotiator.create_offer(params)?;
+                    if let NegotiatorState::Initial = nego_state {
+                        let Some(offer_params) = offer_params else {
+                            return Err(Error::Custom(
+                                "offer required to answer a delayed offer".into(),
+                            ));
+                        };
+                        let local_sdp = self.negotiator.create_offer(offer_params)?;
 
-                            negotiator.set_local_offer(local)?;
-                            negotiator.set_remote_offer(remote)?;
+                        self.negotiator.set_local_offer(local_sdp)?;
+                        self.negotiator.set_remote_offer(remote_sdp)?;
 
-                            let answer = negotiator.create_answer()?;
+                        let answer = self.negotiator.create_answer()?;
+                        let answer = answer.encode()?;
 
-                            Some(SipBody::from(bytes::Bytes::from(answer.encode()?)))
-                        }
-                        NegotiatorState::LocalOffer => {
-                            // This is an answer.
-                            negotiator.process_answer(remote)?;
+                        let ack_body = SipBody::from(bytes::Bytes::from(answer));
 
-                            None
-                        }
-                        NegotiatorState::RemoteOffer => todo!("we have early offer?"),
-                        _ => unreachable!(),
+                        Some(ack_body)
+                    } else if let NegotiatorState::LocalOffer = nego_state {
+                        // This is an answer.
+                        self.negotiator.process_answer(remote_sdp)?;
+                        None
+                    } else if let NegotiatorState::RemoteOffer = nego_state {
+                        todo!("we received early offer on 180 Ringing response (Early Media)")
+                    } else {
+                        unreachable!()
                     }
                 } else {
                     None
                 };
 
+                handler
+                    .on_negotiation_done(SessionNegotiationDoneEvent {
+                        local_sdp: self.negotiator.local_offer().expect("a offer"),
+                        remote_sdp: self.negotiator.remote_offer().expect("a offer"),
+                        answer: self.negotiator.answer().expect("a answer"),
+                    })
+                    .await;
+
                 let mut ack = dialog.create_request(SipMethod::Ack);
                 ack.body = ack_body;
 
                 let endpoint = dialog.endpoint();
-
                 let mut outgoing = endpoint.create_outgoing_request(ack, None).await?;
 
                 endpoint.send_outgoing_request(&mut outgoing).await?;
 
-                let local_sdp = self.negotiator.local_offer().expect("a offer");
-                let remote_sdp = self.negotiator.remote_offer().expect("a offer");
-                let answer = self.negotiator.answer().expect("a answer");
-
-                handler
-                    .on_negotiation_done(SessionNegotiationDoneEvent {
-                        local_sdp,
-                        remote_sdp,
-                        answer,
-                    })
-                    .await;
-
-                tokio::spawn(Self::session_loop(dialog, handler));
+                tokio::spawn(Self::receive_dialog_message(dialog, handler));
 
                 Ok(())
             }
@@ -269,9 +202,9 @@ impl Session<Incoming> {
 
         if let Some(body) = &request.body {
             // EarlyOffer
-            let remote_offer = Self::parse_sdp(body)?;
+            let remote_sdp = Self::parse_sdp(body)?;
 
-            negotiator.set_remote_offer(remote_offer)?;
+            negotiator.set_remote_offer(remote_sdp)?;
         }
 
         let server_tsx = ServerTransaction::from_request(request, endpoint);
@@ -311,13 +244,9 @@ impl Session<Incoming> {
 
         let mut sip_response = dialog.create_response(&server_tsx, status_code, reason_phrase);
 
-        // If the INVITE request contained an offer, and the UAS had not yet
-        // sent an answer, the 2xx MUST contain an answer.  If the INVITE did
-        // not contain an offer, the 2xx MUST contain an offer if the UAS had
-        // not yet sent an offer.
         let offer = self.negotiator.create_offer(sdp_params)?;
 
-        let body = if self.negotiator.state() == NegotiatorState::RemoteOffer {
+        let our_sdp = if let NegotiatorState::RemoteOffer = self.negotiator.state() {
             self.negotiator.set_local_offer(offer)?;
             let answer = self.negotiator.create_answer()?;
             answer.encode()?
@@ -328,7 +257,7 @@ impl Session<Incoming> {
             encoded
         };
 
-        sip_response.body = Some(SipBody::from(bytes::Bytes::from(body)));
+        sip_response.body = Some(SipBody::from(bytes::Bytes::from(our_sdp)));
 
         sip_response
             .headers
@@ -338,7 +267,7 @@ impl Session<Incoming> {
 
         let ack = dialog.wait_for_ack().await?;
 
-        if self.negotiator.state() == NegotiatorState::LocalOffer {
+        if let NegotiatorState::LocalOffer = self.negotiator.state() {
             let Some(body) = &ack.body else {
                 return Err(Error::Custom("missing answer on ack".into()));
             };
@@ -346,19 +275,56 @@ impl Session<Incoming> {
             self.negotiator.process_answer(answer)?;
         }
 
-        let local_sdp = self.negotiator.local_offer().expect("a offer");
-        let remote_sdp = self.negotiator.remote_offer().expect("a offer");
-        let answer = self.negotiator.answer().expect("a answer");
-
         handler
             .on_negotiation_done(SessionNegotiationDoneEvent {
-                local_sdp,
-                remote_sdp,
-                answer,
+                local_sdp: self.negotiator.local_offer().expect("a offer"),
+                remote_sdp: self.negotiator.remote_offer().expect("a offer"),
+                answer: self.negotiator.answer().expect("a answer"),
             })
             .await;
 
-        tokio::spawn(Self::session_loop(dialog, handler));
+        tokio::spawn(Self::receive_dialog_message(dialog, handler));
+
+        Ok(())
+    }
+}
+
+impl<S> Session<S> {
+    fn parse_sdp(body: &SipBody) -> Result<SessionDescription> {
+        let sdp = SdpParser::parse(body.as_ref())?;
+        Ok(sdp)
+    }
+
+    async fn receive_dialog_message(
+        mut dialog: Dialog,
+        inv_handler: impl SessionEventHandler,
+    ) -> Result<()> {
+        while let Ok(request) = dialog.receive_request().await {
+            match request.req_line.method {
+                SipMethod::Invite => {
+                    inv_handler.on_reinvite(request).await;
+                    continue;
+                }
+                SipMethod::Bye => {
+                    let endpoint = dialog.endpoint().clone();
+                    let bye_tsx = ServerTransaction::from_request(request, endpoint);
+
+                    dialog.final_response(bye_tsx, StatusCode::Ok).await?;
+
+                    inv_handler
+                        .on_terminated(SessionTerminatedEvent {
+                            cause: TerminatedCause::ByeReceived,
+                        })
+                        .await;
+
+                    break;
+                }
+                method => {
+                    log::debug!("received request: {} (ignoring)", method);
+                    continue;
+                }
+            }
+        }
 
         Ok(())
     }
