@@ -167,7 +167,7 @@ impl Session<Calling> {
 
                 endpoint.send_outgoing_request(&mut outgoing).await?;
 
-                tokio::spawn(Self::receive_dialog_message(dialog, handler));
+                tokio::spawn(Self::handle_in_dialog_request(dialog, handler));
 
                 Ok(())
             }
@@ -283,7 +283,7 @@ impl Session<Incoming> {
             })
             .await;
 
-        tokio::spawn(Self::receive_dialog_message(dialog, handler));
+        tokio::spawn(Self::handle_in_dialog_request(dialog, handler));
 
         Ok(())
     }
@@ -295,14 +295,14 @@ impl<S> Session<S> {
         Ok(sdp)
     }
 
-    async fn receive_dialog_message(
+    async fn handle_in_dialog_request(
         mut dialog: Dialog,
-        inv_handler: impl SessionEventHandler,
+        handler: impl SessionEventHandler,
     ) -> Result<()> {
         while let Ok(request) = dialog.receive_request().await {
             match request.req_line.method {
                 SipMethod::Invite => {
-                    inv_handler.on_reinvite(request).await;
+                    handler.on_reinvite(request).await;
                     continue;
                 }
                 SipMethod::Bye => {
@@ -311,7 +311,7 @@ impl<S> Session<S> {
 
                     dialog.final_response(bye_tsx, StatusCode::Ok).await?;
 
-                    inv_handler
+                    handler
                         .on_terminated(SessionTerminatedEvent {
                             cause: TerminatedCause::ByeReceived,
                         })
