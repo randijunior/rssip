@@ -44,17 +44,11 @@ pub enum Error {
     #[error("Fmt Error: {0}")]
     Fmt(#[from] std::fmt::Error),
 
-    #[error("Resolve Error: {0}")]
-    ResolveError(#[from] hickory_resolver::ResolveError),
-
     #[error("error: {0}")]
     Custom(String),
 
     #[error("error: {0}")]
     MediaError(#[from] media::error::Error),
-
-    #[error("No Media configured on endpoint!")]
-    NoMediaConfigured,
 }
 
 impl Error {
