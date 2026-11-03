@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use tokio::sync::mpsc;
 use tokio::time;
 
-use crate::core::endpoint::{self, Takeable};
+use crate::endpoint::{self, Takeable};
 use crate::error::{Error, Result};
 use crate::message::headers::{CSeq, CallId, Contact, From, Header, Headers, MaxForwards, To};
 use crate::message::method::SipMethod;

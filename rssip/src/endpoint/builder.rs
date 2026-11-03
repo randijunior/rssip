@@ -2,8 +2,8 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::{io, mem};
 
-use crate::core::endpoint::EndpointInner;
-use crate::core::endpoint::plugin::{Plugin, Plugins};
+use crate::endpoint::EndpointInner;
+use crate::endpoint::plugin::{Plugin, Plugins};
 use crate::message::headers::{Accept, Allow, Supported};
 use crate::message::media_type::MediaType;
 use crate::message::method::SipMethod;
