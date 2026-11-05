@@ -28,10 +28,10 @@ impl fmt::Display for RtpPacket {
 }
 
 impl RtpPacket {
-    pub fn parse(packet: &mut impl bytes::Buf) -> io::Result<Self> {
-        let header = RtpHeader::parse(packet)?;
-        let payload_len = packet.remaining();
-        let payload = packet.copy_to_bytes(payload_len);
+    pub fn parse(raw_packet: &mut impl bytes::Buf) -> io::Result<Self> {
+        let header = RtpHeader::parse(raw_packet)?;
+        let payload_len = raw_packet.remaining();
+        let payload = raw_packet.copy_to_bytes(payload_len);
 
         if header.padding {
             todo!()

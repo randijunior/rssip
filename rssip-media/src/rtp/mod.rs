@@ -1,18 +1,23 @@
 pub mod header;
 pub mod packet;
 
-use std::io::{Result as IoResult, Write};
+use bytes::BufMut;
+use std::io::{self, ErrorKind, Result as IoResult};
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{mpsc, watch};
 
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
-use crate::codec::PayloadType;
+use crate::rtcp::packet::RtcpPacket;
 use crate::rtp::header::RtpHeader;
 use crate::rtp::packet::RtpPacket;
 
 const MAX_RTP_PACKET_SIZE: usize = 1500;
-
+const RTP_HEADER_SIZE: usize = 12;
 const RTP_VERSION: u8 = 2;
+const MAX_CSRC: usize = 15;
 
 pub struct RtpSession {
     /// Local RTP address
@@ -21,7 +26,12 @@ pub struct RtpSession {
     /// Remote RTP address
     remote_addr: SocketAddr,
 
-    sock: UdpSocket,
+    rtp_sock: Arc<UdpSocket>,
+    rtcp_sock: Arc<UdpSocket>,
+
+    receiver: mpsc::Receiver<RtpMessage>,
+
+    _shutdown: watch::Sender<()>,
 
     ssrc: u32,
 
@@ -30,27 +40,73 @@ pub struct RtpSession {
     sequence_number: u16,
 
     timestamp: u32,
-    
-    payload_type: PayloadType,
+
+    payload_type: u8,
     // cname: String,
-    // rtcp_sock: UdpSocket
+}
+
+pub enum RtpMessage {
+    Rtp(RtpPacket),
+    Rtcp(RtcpPacket),
 }
 
 impl RtpSession {
-    pub async fn create<A: ToSocketAddrs>(
-        local_addr: A,
-        remote_addr: A,
-        payload_type: PayloadType,
-    ) -> IoResult<Self> {
-        let sock = UdpSocket::bind(local_addr).await?;
+    pub async fn create<L, R>(local_addr: L, remote_addr: R, payload_type: u8) -> IoResult<Self>
+    where
+        L: ToSocketAddrs,
+        R: ToSocketAddrs,
+    {
+        if payload_type > 127 {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "payload_type sould be <= 127",
+            ));
+        }
 
-        sock.connect(remote_addr).await?;
+        let rtp_sock = UdpSocket::bind(local_addr).await?;
+        rtp_sock.connect(remote_addr).await?;
+        let local_addr = rtp_sock.local_addr()?;
+        let remote_addr = rtp_sock.peer_addr()?;
 
-        Ok(Self {
-            local_addr: sock.local_addr()?,
-            remote_addr: sock.peer_addr()?,
-            sock,
+        let rtcp_port = |p: u16| {
+            p.checked_add(1)
+                .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "invalid RTCP port"))
+        };
+        let rtcp_sock = UdpSocket::bind((local_addr.ip(), rtcp_port(local_addr.port())?)).await?;
+        rtcp_sock
+            .connect((remote_addr.ip(), rtcp_port(remote_addr.port())?))
+            .await?;
+        let rtp_sock = Arc::new(rtp_sock);
+        let rtcp_sock = Arc::new(rtcp_sock);
+        let (tx, rx) = mpsc::channel(64);
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
+
+        spawn_reader(
+            "RTP",
+            rtp_sock.clone(),
+            tx.clone(),
+            shutdown_rx.clone(),
+            |mut b| {
+                RtpPacket::parse(&mut b)
+                    .map(RtpMessage::Rtp)
+                    .map_err(|e| log::error!("RTP parse: {e:#?}"))
+                    .ok()
+            },
+        );
+        spawn_reader("RTCP", rtcp_sock.clone(), tx, shutdown_rx, |mut b| {
+            RtcpPacket::parse(&mut b)
+                .map(RtpMessage::Rtcp)
+                .map_err(|e| log::error!("RTCP parse: {e:#?}"))
+                .ok()
+        });
+        Ok(RtpSession {
+            local_addr,
+            remote_addr,
+            rtp_sock,
+            rtcp_sock,
+            receiver: rx,
             ssrc: rand::random(),
+            _shutdown: shutdown_tx,
             sequence_number: rand::random(),
             timestamp: rand::random(),
             peer_ssrc: None,
@@ -58,19 +114,25 @@ impl RtpSession {
         })
     }
 
-    pub async fn read_rtp(&self) -> IoResult<RtpPacket> {
-        let mut buf = [0u8; MAX_RTP_PACKET_SIZE];
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_addr
+    }
+    pub fn peer_ssrc(&self) -> Option<u32> {
+        self.peer_ssrc
+    }
 
-        let (len, _addr) = self.sock.recv_from(&mut buf).await?;
-
-        let rtp_packet = RtpPacket::parse(&mut &buf[..len])?;
-
-        Ok(rtp_packet)
+    pub async fn receive(&mut self) -> Option<RtpMessage> {
+        let msg = self.receiver.recv().await;
+        if let Some(RtpMessage::Rtp(rtp)) = &msg {
+            self.peer_ssrc.get_or_insert(rtp.header.ssrc);
+        }
+        msg
     }
 
     pub async fn write_rtp(&mut self, data: &[u8], samples: u32) -> IoResult<usize> {
-        self.timestamp = self.timestamp.wrapping_add(samples);
-        self.sequence_number = self.sequence_number.wrapping_add(1);
         let header = RtpHeader {
             version: RTP_VERSION,
             padding: false,
@@ -82,50 +144,74 @@ impl RtpSession {
             csrc_list: vec![],
             timestamp: self.timestamp,
         };
-        let len = self.send_rtp_packet(header, data).await?;
-        Ok(len)
+        let written = self.send_rtp_packet(header, data).await?;
+        self.timestamp = self.timestamp.wrapping_add(samples);
+        self.sequence_number = self.sequence_number.wrapping_add(1);
+        Ok(written)
     }
 
-    async fn send_rtp_packet(&self, header: RtpHeader, data: &[u8]) -> IoResult<usize> {
-        use bytes::BufMut;
+    pub async fn send_rtp_packet(&self, header: RtpHeader, data: &[u8]) -> IoResult<usize> {
+        let total_size = RTP_HEADER_SIZE + header.csrc_list.len() * 4 + data.len();
+        if total_size > MAX_RTP_PACKET_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "RTP packet exceeds maximum size",
+            ));
+        }
         let mut dst = [0u8; MAX_RTP_PACKET_SIZE];
         let mut buf = &mut dst[..];
-        let remaining_before = buf.remaining_mut();
-        let mut b = RTP_VERSION << 6;
-        if header.padding {
-            b |= 0b0010_0000;
-        }
-        if header.extension {
-            b |= 0b0001_0000;
-        }
-        b |= header.csrc_list.len() as u8;
-        buf.put_u8(b);
-
-        let mut b = 0;
-        if header.marker {
-            b |= 0b1000_0000;
-        }
-        b |= header.payload_type;
-        buf.put_u8(b);
-
+        buf.put_u8((RTP_VERSION << 6) | header.csrc_list.len() as u8);
+        buf.put_u8(((header.marker as u8) << 7) | header.payload_type);
         buf.put_u16(header.sequence_number);
         buf.put_u32(header.timestamp);
         buf.put_u32(header.ssrc);
-
-        for csrc in header.csrc_list.iter() {
+        for csrc in &header.csrc_list {
             buf.put_u32(*csrc);
         }
-        //if let Some(ref extension) = self.extension {
-        //
-        // }
-        buf.put(data);
+        buf.put_slice(data);
 
-        let remaining_after = buf.remaining_mut();
-        let written_len = remaining_before - remaining_after;
-
-        // Send a message
-        let len = self.sock.send(&dst[..written_len]).await?;
-
-        Ok(len)
+        self.rtp_sock.send(&dst[..total_size]).await
     }
+}
+
+fn spawn_reader<F>(
+    name: &'static str,
+    sock: Arc<UdpSocket>,
+    tx: mpsc::Sender<RtpMessage>,
+    mut shutdown: watch::Receiver<()>,
+    parse: F,
+) where
+    F: Fn(&[u8]) -> Option<RtpMessage> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut buf = [0u8; MAX_RTP_PACKET_SIZE];
+        loop {
+            let len = tokio::select! {
+                _ = shutdown.changed() => {
+                    log::debug!("Cancelling {name} task...");
+                    break;
+                }
+                res = sock.recv(&mut buf) => match res {
+                    Ok(len) => len,
+                    Err(e) if e.kind() == ErrorKind::ConnectionRefused => continue,
+                    Err(e) => {
+                        log::error!("{name} socket error: {e}");
+                        break;
+                    }
+                },
+            };
+
+            let Some(msg) = parse(&buf[..len]) else {
+                continue;
+            };
+
+            match tx.try_send(msg) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    log::warn!("{name}: slow consumer, discarded packet")
+                }
+                Err(TrySendError::Closed(_)) => break,
+            }
+        }
+    });
 }
