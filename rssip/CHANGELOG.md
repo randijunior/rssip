@@ -1,3 +1,9 @@
+# 0.1.2 (November 05, 2026)
+
+### Changed
+
+* rssip: removed 'core' module
+
 # 0.1.1 (October 16, 2026)
 
 ### Added
