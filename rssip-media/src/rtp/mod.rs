@@ -1,14 +1,14 @@
 pub mod header;
 pub mod packet;
 
-use bytes::BufMut;
 use std::io::{self, ErrorKind, Result as IoResult};
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use bytes::BufMut;
+use tokio::net::{ToSocketAddrs, UdpSocket};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, watch};
-
-use tokio::net::{ToSocketAddrs, UdpSocket};
 
 use crate::rtcp::packet::RtcpPacket;
 use crate::rtp::header::RtpHeader;

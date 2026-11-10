@@ -13,35 +13,19 @@ use rssip::message::method::SipMethod;
 use rssip::message::status_code::StatusCode;
 use rssip::transaction::{ServerTransaction, TsxPlugin};
 use rssip::ua::dialog::DialogPlugin;
-use rssip::ua::session::Session;
-use rssip::ua::session::event::{
-    SessionEventHandler, SessionNegotiationDoneEvent, SessionTerminatedEvent,
-};
+use rssip::ua::session::{MediaEvent, Session, SessionEvent};
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
-pub struct MyHandler;
-
-impl SessionEventHandler for MyHandler {
-    async fn on_terminated(&self, evt: SessionTerminatedEvent) {
-        println!("Terminated, cause = {:#?}", evt.cause);
-    }
-    
-    async fn on_negotiation_done(&self, _evt: SessionNegotiationDoneEvent<'_>) {
-        println!("Sdp Negotiation Done");
-        // Create RtpSession
-    }
-}
-
-pub struct Acceptor {
+pub struct Accept {
     contact: Contact,
     media_port: AtomicU16,
 }
 
 #[async_trait::async_trait]
-impl endpoint::Plugin for Acceptor {
+impl endpoint::Plugin for Accept {
     fn name(&self) -> &'static str {
-        "acceptor"
+        "accept"
     }
 
     async fn incoming_request(&self, mut req: Takeable<'_, IncomingRequest>, endpoint: &Endpoint) {
@@ -74,10 +58,23 @@ impl endpoint::Plugin for Acceptor {
                 .with_codecs(vec![Codec::ULAW, Codec::ALAW]),
         );
 
-        session
-            .accept(StatusCode::Ok, None, &sdp, MyHandler)
-            .await
-            .unwrap();
+        let mut accepted = session.accept(StatusCode::Ok, None, &sdp).await.unwrap();
+
+        tokio::spawn(async move {
+            while let Ok(evt) = accepted.pool_evt().await {
+                match evt {
+                    SessionEvent::Terminated(cause) => {
+                        println!("Terminated, cause = {:#?}", cause);
+                        break;
+                    }
+                    SessionEvent::Media(MediaEvent::Rtp(rtp)) => {
+                        println!("GOT RTP: {}", rtp);
+                        accepted.send_rtp(&rtp.payload, 160).await.unwrap();
+                    }
+                    _ => continue,
+                }
+            }
+        });
     }
 }
 
@@ -117,7 +114,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_plugin(Logger)
         .with_plugin(DialogPlugin::default())
         .with_plugin(TsxPlugin::default())
-        .with_plugin(Acceptor {
+        .with_plugin(Accept {
             media_port: AtomicU16::new(2048),
             contact: "<sip:0.0.0.0:8089>".parse().unwrap(),
         })

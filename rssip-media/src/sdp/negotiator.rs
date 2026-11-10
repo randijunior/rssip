@@ -133,7 +133,7 @@ impl Negotiator {
                                 name: "rtpmap".to_owned(),
                                 value: Some("8 PCMA/8000".to_owned()),
                             });
-                        },
+                        }
                         "GSM" => {
                             attributes.push(Attribute {
                                 name: "rtpmap".to_owned(),

@@ -6,7 +6,7 @@ pub(crate) type PayloadType = u8;
 pub struct Codec {
     name: Cow<'static, str>,
     clock_rate: u32,                          // clock rate in Hz
-    payload_type: PayloadType,                         // pt
+    payload_type: PayloadType,                // pt
     channels: u16,                            // Number of audio channels (0 for video codecs)
     sdp_fmtp_line: Option<Cow<'static, str>>, // Format-specific parameters as SDP fmtp line
 }

@@ -1,3 +1,6 @@
+use media::rtcp::packet::RtcpPacket;
+use media::rtp::packet::RtpPacket;
+use media::rtp::{RtpMessage, RtpSession};
 use media::sdp::SessionDescription;
 use media::sdp::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
 use media::sdp::parser::SdpParser;
@@ -11,10 +14,6 @@ use crate::message::{ReasonPhrase, SipBody};
 use crate::transaction::{ClientTransaction, ServerTransaction};
 use crate::ua::dialog::Dialog;
 use crate::{Endpoint, Error, IncomingRequest, IncomingResponse, OutgoingRequest, Result};
-
-use self::event::*;
-
-pub mod event;
 
 // Offer                Answer             RFC    Ini Est Early
 // -------------------------------------------------------------------
@@ -37,11 +36,38 @@ pub struct Calling {
     client_tsx: ClientTransaction,
 }
 
+pub struct Accepted {
+    dialog: Dialog,
+    rtp: RtpSession,
+    cause: Option<TerminatedCause>,
+}
+
 pub struct InvitationParams {
     pub from_uri: SipUri,
     pub to_uri: SipUri,
     pub contact: Option<SipUri>,
     pub sdp: Option<SdpOfferParams>,
+}
+
+pub enum MediaEvent {
+    Rtp(RtpPacket),
+    Rtcp(RtcpPacket),
+}
+
+pub enum DialogEvent {
+    Reinvite(IncomingRequest),
+    Request(IncomingRequest),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminatedCause {
+    ByeReceived,
+}
+
+pub enum SessionEvent {
+    Media(MediaEvent),
+    Dialog(DialogEvent),
+    Terminated(TerminatedCause),
 }
 
 impl Session<Calling> {
@@ -103,8 +129,7 @@ impl Session<Calling> {
     pub async fn receive_answer(
         mut self,
         offer_params: Option<&SdpOfferParams>,
-        handler: impl SessionEventHandler,
-    ) -> Result<()> {
+    ) -> Result<Session<Accepted>> {
         let Calling {
             mut dialog,
             client_tsx,
@@ -151,14 +176,6 @@ impl Session<Calling> {
                     None
                 };
 
-                handler
-                    .on_negotiation_done(SessionNegotiationDoneEvent {
-                        local_sdp: self.negotiator.local_offer().expect("a offer"),
-                        remote_sdp: self.negotiator.remote_offer().expect("a offer"),
-                        answer: self.negotiator.answer().expect("a answer"),
-                    })
-                    .await;
-
                 let mut ack = dialog.create_request(SipMethod::Ack);
                 ack.body = ack_body;
 
@@ -167,9 +184,20 @@ impl Session<Calling> {
 
                 endpoint.send_outgoing_request(&mut outgoing).await?;
 
-                tokio::spawn(Self::handle_in_dialog_request(dialog, handler));
+                let local_sdp = self.negotiator.local_offer().expect("a offer");
+                let remote_sdp = self.negotiator.remote_offer().expect("a offer");
+                let answer = self.negotiator.answer().expect("a answer");
 
-                Ok(())
+                let rtp = Self::init_rtp(local_sdp, remote_sdp, answer).await?;
+
+                Ok(Session {
+                    state: Accepted {
+                        dialog,
+                        rtp,
+                        cause: None,
+                    },
+                    negotiator: self.negotiator,
+                })
             }
             // 13.2.2.2 3xx Responses
             300..=399 => todo!(),
@@ -235,8 +263,7 @@ impl Session<Incoming> {
         status_code: StatusCode,
         reason_phrase: Option<ReasonPhrase>,
         sdp_params: &SdpOfferParams,
-        handler: impl SessionEventHandler,
-    ) -> Result<()> {
+    ) -> Result<Session<Accepted>> {
         let Incoming {
             server_tsx,
             mut dialog,
@@ -275,58 +302,102 @@ impl Session<Incoming> {
             self.negotiator.process_answer(answer)?;
         }
 
-        handler
-            .on_negotiation_done(SessionNegotiationDoneEvent {
-                local_sdp: self.negotiator.local_offer().expect("a offer"),
-                remote_sdp: self.negotiator.remote_offer().expect("a offer"),
-                answer: self.negotiator.answer().expect("a answer"),
-            })
-            .await;
+        let local_sdp = self.negotiator.local_offer().expect("a offer");
+        let remote_sdp = self.negotiator.remote_offer().expect("a offer");
+        let answer = self.negotiator.answer().expect("a answer");
 
-        tokio::spawn(Self::handle_in_dialog_request(dialog, handler));
+        let rtp = Self::init_rtp(local_sdp, remote_sdp, answer).await?;
 
+        Ok(Session {
+            state: Accepted {
+                dialog,
+                rtp,
+                cause: None,
+            },
+            negotiator: self.negotiator,
+        })
+    }
+}
+
+impl Session<Accepted> {
+    pub async fn send_rtp(&mut self, data: &[u8], samples: u32) -> Result<()> {
+        self.state.rtp.write_rtp(data, samples).await?;
         Ok(())
+    }
+    pub async fn pool_evt(&mut self) -> Result<SessionEvent> {
+        let Accepted { rtp, dialog, cause } = &mut self.state;
+        if let Some(cause) = cause {
+            return Ok(SessionEvent::Terminated(*cause));
+        }
+        tokio::select! {
+            Ok(request) = dialog.receive_request() => {
+                match request.req_line.method {
+                    SipMethod::Invite => {
+                        return Ok(SessionEvent::Dialog(DialogEvent::Reinvite(request)));
+                    }
+                    SipMethod::Bye => {
+                        let bye_tsx = ServerTransaction::from_request(request, dialog.endpoint().clone());
+
+                        dialog.final_response(bye_tsx, StatusCode::Ok).await?;
+
+                        let term_cause = TerminatedCause::ByeReceived;
+
+                        *cause = Some(term_cause);
+
+                        return Ok(SessionEvent::Terminated(term_cause));
+                    }
+                    method => {
+                        log::debug!("received request: {}", method);
+                        return Ok(SessionEvent::Dialog(DialogEvent::Request(request)));
+                    }
+                }
+            },
+            Some(media) = rtp.receive() => match media {
+                RtpMessage::Rtp(rtp) => {
+                    return Ok(SessionEvent::Media(MediaEvent::Rtp(rtp)));
+                },
+                RtpMessage::Rtcp(rtcp) =>  {
+                    return Ok(SessionEvent::Media(MediaEvent::Rtcp(rtcp)));
+                },
+            }
+        }
     }
 }
 
 impl<S> Session<S> {
+    pub async fn init_rtp(
+        local_sdp: &SessionDescription,
+        remote_sdp: &SessionDescription,
+        answer: &SessionDescription,
+    ) -> Result<RtpSession> {
+        let local_media_description = &local_sdp.media[0];
+        let ip_addr = local_media_description
+            .connection_information
+            .as_ref()
+            .map(|c| c.conection_address)
+            .unwrap_or(local_sdp.origin.unicast_address);
+
+        let local_addr = (ip_addr, local_media_description.port);
+
+        let remote_media_description = &remote_sdp.media[0];
+        let addr = remote_media_description
+            .connection_information
+            .as_ref()
+            .map(|c| c.conection_address)
+            .unwrap_or(remote_sdp.origin.unicast_address);
+
+        let remote_addr = (addr, remote_media_description.port);
+
+        let pt: u8 = answer.media[0].media_formats[0].parse().unwrap();
+
+        let session = RtpSession::create(local_addr, remote_addr, pt).await?;
+
+        Ok(session)
+    }
+
     fn parse_sdp(body: &SipBody) -> Result<SessionDescription> {
         let sdp = SdpParser::parse(body.as_ref())?;
         Ok(sdp)
-    }
-
-    async fn handle_in_dialog_request(
-        mut dialog: Dialog,
-        handler: impl SessionEventHandler,
-    ) -> Result<()> {
-        while let Ok(request) = dialog.receive_request().await {
-            match request.req_line.method {
-                SipMethod::Invite => {
-                    handler.on_reinvite(request).await;
-                    continue;
-                }
-                SipMethod::Bye => {
-                    let endpoint = dialog.endpoint().clone();
-                    let bye_tsx = ServerTransaction::from_request(request, endpoint);
-
-                    dialog.final_response(bye_tsx, StatusCode::Ok).await?;
-
-                    handler
-                        .on_terminated(SessionTerminatedEvent {
-                            cause: TerminatedCause::ByeReceived,
-                        })
-                        .await;
-
-                    break;
-                }
-                method => {
-                    log::debug!("received request: {} (ignoring)", method);
-                    continue;
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 
