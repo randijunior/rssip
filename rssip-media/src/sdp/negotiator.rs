@@ -7,255 +7,81 @@ use crate::sdp::{
     Origin, SdpTransport, SessionDescription, TimeActive, TimeDescription,
 };
 
+pub enum Role {
+    Offerer,
+    Answerer,
+}
+
 #[derive(Default)]
-pub struct Negotiator {
-    remote_offer: Option<SessionDescription>,
-    local_offer: Option<SessionDescription>,
-    answer: Option<SessionDescription>,
-    state: NegotiatorState,
-}
-
-/// SDP Negotiation state.
-#[derive(Default, Debug, PartialEq, Eq, Copy, Clone)]
-pub enum NegotiatorState {
+pub enum Negotiator {
     #[default]
-    Initial,
-    LocalOffer,
-    RemoteOffer,
-    Ready,
-    Done,
+    Idle,
+    RemoteOffered {
+        offer: SessionDescription,
+    },
+    LocalOffered {
+        offer: SessionDescription,
+    },
+    Complete {
+        offer: SessionDescription,
+        answer: SessionDescription,
+        role: Role,
+    },
 }
 
-pub struct SdpOfferParams {
+pub struct SdpConfig {
     origin_ip: IpAddr,
     direction: Direction,
     media_streams: Vec<SdpMediaStream>,
 }
 
+pub struct SdpConfigBuilder {
+    address: IpAddr,
+    direction: Direction,
+    port: u16,
+    codecs: Vec<Codec>,
+    transport: SdpTransport,
+}
+
 pub struct SdpMediaStream {
-    pub(crate) transport: SdpTransport,
-    pub(crate) media_type: MediaType,
-    pub(crate) codecs: Vec<Codec>,
-    pub(crate) port: u16,
+    transport: SdpTransport,
+    media_type: MediaType,
+    codecs: Vec<Codec>,
+    port: u16,
 }
 
 impl Negotiator {
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_local(local: SessionDescription) -> Self {
-        Self {
-            local_offer: Some(local),
-            state: NegotiatorState::LocalOffer,
-            answer: None,
-            remote_offer: None,
-        }
-    }
-
-    pub fn with_remote(remote: SessionDescription) -> Self {
-        Self {
-            remote_offer: Some(remote),
-            state: NegotiatorState::RemoteOffer,
-            answer: None,
-            local_offer: None,
-        }
-    }
-
-    pub fn set_remote_offer(&mut self, remote: SessionDescription) -> Result<()> {
-        self.state = match self.state {
-            NegotiatorState::Initial => NegotiatorState::RemoteOffer,
-            NegotiatorState::LocalOffer => NegotiatorState::Ready,
-            _ => return Err(Error::ErrInvalidNegoState),
-        };
-        self.remote_offer = Some(remote);
-        Ok(())
-    }
-
-    pub fn set_local_offer(&mut self, local: SessionDescription) -> Result<()> {
-        self.state = match self.state {
-            NegotiatorState::Initial => NegotiatorState::LocalOffer,
-            NegotiatorState::RemoteOffer => NegotiatorState::Ready,
-            _ => return Err(Error::ErrInvalidNegoState),
-        };
-        self.local_offer = Some(local);
-        Ok(())
+        Self::Idle
     }
 
     // RFC 3264 5 - Generating the Initial Offer
-    pub fn create_offer(&self, params: &SdpOfferParams) -> Result<SessionDescription> {
-        // In this model, one participant in the session generates an SDP message that
-        // constitutes the offer - the set of media streams and codecs the
-        // offerer wishes to use, along with the IP addresses and ports the
-        // offerer would like to use to receive the media.
-
-        // The offer will contain zero or more media streams (each media stream
-        //     is described by an "m=" line and its associated attributes).  Zero
-        //     media streams implies that the offerer wishes to communicate, but
-        //     that the streams for the session will be added at a later time
-        //     through a modified offer.  The streams MAY be for a mix of unicast
-        //     and multicast; the latter obviously implies a multicast address in
-        //     the relevant "c=" line(s).
-
-        // The list of media formats for each media stream conveys two pieces of
-        //     information, namely the set of formats (codecs and any parameters
-        //     associated with the codec, in the case of RTP) that the offerer is
-        //     capable of sending and/or receiving (depending on the direction
-        //     attributes), and, in the case of RTP, the RTP payload type numbers
-        //     used to identify those formats.
-
-        // an SDP message used in the offer/answer model MUST
-        // contain exactly one session description.
-        if !matches!(
-            self.state,
-            NegotiatorState::Initial | NegotiatorState::RemoteOffer
-        ) {
+    pub fn generate_offer(&mut self, config: &SdpConfig) -> Result<&SessionDescription> {
+        if !matches!(self, Self::Idle) {
             return Err(Error::ErrInvalidNegoState);
         }
+        let offer = self.build_offer(config);
 
-        let mut media: Vec<MediaDescription> = params
-            .media_streams
-            .iter()
-            .map(|sdp_media_stream| {
-                let mut media_formats = vec![];
-                let mut attributes = vec![];
+        *self = Negotiator::LocalOffered { offer };
 
-                for codec in sdp_media_stream.codecs.iter() {
-                    match codec.name() {
-                        "PCMU" => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some("0 PCMU/8000".to_owned()),
-                            });
-                        }
-                        "PCMA" => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some("8 PCMA/8000".to_owned()),
-                            });
-                        }
-                        "GSM" => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some("3 GSM/8000".to_owned()),
-                            });
-                        }
-                        "opus" => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some("96 opus/48000/2".to_owned()),
-                            });
-                        }
-                        "telephone-event" => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some("101 telephone-event/8000".to_owned()),
-                            });
-                            attributes.push(Attribute {
-                                name: "fmtp".to_owned(),
-                                value: Some("101 0-16".to_owned()),
-                            });
-                        }
-                        _ => {
-                            attributes.push(Attribute {
-                                name: "rtpmap".to_owned(),
-                                value: Some(format!(
-                                    "{}/{}/{}/{}/",
-                                    codec.pt(),
-                                    codec.name(),
-                                    codec.clock_rate(),
-                                    codec.channels()
-                                )),
-                            });
-                        }
-                    }
-                    media_formats.push(codec.pt().to_string());
-                }
-
-                MediaDescription {
-                    media_type: sdp_media_stream.media_type,
-                    proto: sdp_media_stream.transport,
-                    port: sdp_media_stream.port,
-                    number_of_ports: None,
-                    media_formats,
-                    title: None,
-                    connection_information: None,
-                    bandwidth_information: vec![],
-                    attributes,
-                }
-            })
-            .collect();
-
-        if let Some(m) = media.last_mut() {
-            m.attributes.push(Attribute {
-                name: "ptime".to_owned(),
-                value: Some("20".to_owned()),
-            });
-
-            m.attributes.push(Attribute {
-                name: "maxptime".to_owned(),
-                value: Some("150".to_owned()),
-            });
-
-            m.attributes.push(Attribute {
-                name: params.direction.to_string(),
-                value: None,
-            });
-        }
-
-        let offer = SessionDescription {
-            origin: Origin {
-                user: "-".to_owned(),
-                session_id: rand::random::<u64>(),
-                session_version: rand::random::<u64>(),
-                nettype: NetType::IN,
-                addrtype: if params.origin_ip.is_ipv4() {
-                    AddrType::IP4
-                } else {
-                    AddrType::IP6
-                },
-                unicast_address: params.origin_ip,
-            },
-            session_name: "-".to_owned(),
-            session_information: None,
-            uri: None,
-            email_address: None,
-            phone_number: None,
-            connection_information: Some(ConnectionInformation {
-                nettype: NetType::IN,
-                addrtype: if params.origin_ip.is_ipv4() {
-                    AddrType::IP4
-                } else {
-                    AddrType::IP6
-                },
-                conection_address: params.origin_ip,
-            }),
-            bandwidth_information: vec![],
-            attributes: vec![],
-            time: vec![TimeDescription {
-                time_active: TimeActive {
-                    start_time: 0,
-                    stop_time: 0,
-                },
-                repeat_times: vec![],
-            }],
-            media,
+        let Self::LocalOffered { offer } = &*self else {
+            unreachable!()
         };
+
         Ok(offer)
     }
 
     // RFC 3264 6 - Generating the Answer
-    pub fn create_answer(&mut self) -> Result<&SessionDescription> {
-        if self.state != NegotiatorState::Ready {
+    pub fn generate_answer(&mut self, config: &SdpConfig) -> Result<&SessionDescription> {
+        let Self::RemoteOffered { offer: remote } = &self else {
             return Err(Error::ErrInvalidNegoState);
         };
 
-        let remote_offer = self.remote_offer.as_ref().expect("a remote offer");
-        let local_offer = self.local_offer.as_ref().expect("a local offer");
+        let local = self.build_offer(config);
 
         let mut media: Vec<MediaDescription> = vec![];
 
-        for (local, remote) in local_offer.media.iter().zip(remote_offer.media.iter()) {
+        for (local, remote) in local.media.iter().zip(remote.media.iter()) {
             if local.media_type != remote.media_type {
                 todo!("return err");
             }
@@ -349,47 +175,35 @@ impl Negotiator {
 
         let answer = SessionDescription {
             media,
-            time: remote_offer.time.clone(),
-            ..local_offer.clone()
+            time: remote.time.clone(),
+            ..local.clone()
         };
-        let answer_ref = &*self.answer.insert(answer);
 
-        self.state = NegotiatorState::Done;
+        let Self::RemoteOffered { offer } = std::mem::take(self) else {
+            unreachable!()
+        };
 
-        Ok(answer_ref)
+        *self = Negotiator::Complete {
+            offer,
+            answer,
+            role: Role::Answerer,
+        };
+
+        let Self::Complete { answer, .. } = &*self else {
+            unreachable!()
+        };
+
+        Ok(answer)
     }
 
     // RFC 3264 7 - Offerer Processing of the Answer
-    pub fn process_answer(&mut self, answer: SessionDescription) -> Result<()> {
-        if self.state != NegotiatorState::LocalOffer {
+    pub fn receive_answer(&mut self, answer: SessionDescription) -> Result<()> {
+        let Self::LocalOffered { offer } = self else {
             return Err(Error::ErrInvalidNegoState);
         };
         // TODO: Return accepted Streams?
 
-        // When the offerer receives the answer, it MAY send media on the
-        // accepted stream(s) (assuming it is listed as sendrecv or recvonly in
-        // the answer).  It MUST send using a media format listed in the answer,
-        // and it SHOULD use the first media format listed in the answer when it
-        // does send.
-
-        // The reason this is a SHOULD, and not a MUST (its also a SHOULD,
-        // and not a MUST, for the answerer), is because there will
-        // oftentimes be a need to change codecs on the fly.  For example,
-        // during silence periods, an agent might like to switch to a comfort
-        // noise codec.  Or, if the user presses a number on the keypad, the
-        // agent might like to send that using RFC 2833 [9].  Congestion
-        // control might necessitate changing to a lower rate codec based on
-        // feedback.
-
-        // The offerer SHOULD send media according to the value of any ptime and
-        // bandwidth attribute in the answer.
-
-        // The offerer MAY immediately cease listening for media formats that
-        // were listed in the initial offer, but not present in the answer.
-
-        let local_offer = self.local_offer.as_ref().expect("a local offer");
-
-        for (local, remote) in local_offer.media.iter().zip(answer.media.iter()) {
+        for (local, remote) in offer.media.iter().zip(answer.media.iter()) {
             // Just check if have matched codecs
             if local.media_type != remote.media_type {
                 todo!("return err");
@@ -403,30 +217,194 @@ impl Negotiator {
                 continue;
             }
         }
-        self.answer = Some(answer);
-        self.state = NegotiatorState::Done;
+
+        let Self::LocalOffered { offer } = std::mem::take(self) else {
+            unreachable!()
+        };
+
+        *self = Self::Complete {
+            offer,
+            answer,
+            role: Role::Offerer,
+        };
 
         Ok(())
     }
 
-    pub fn local_offer(&self) -> Option<&SessionDescription> {
-        self.local_offer.as_ref()
+    fn build_offer(&self, config: &SdpConfig) -> SessionDescription {
+        let mut media: Vec<MediaDescription> = config
+            .media_streams
+            .iter()
+            .map(|sdp_media_stream| {
+                let mut media_formats = vec![];
+                let mut attributes = vec![];
+
+                for codec in &sdp_media_stream.codecs {
+                    match codec.name() {
+                        "PCMU" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("0 PCMU/8000".to_owned()),
+                            });
+                        }
+                        "PCMA" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("8 PCMA/8000".to_owned()),
+                            });
+                        }
+                        "GSM" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("3 GSM/8000".to_owned()),
+                            });
+                        }
+                        "opus" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("96 opus/48000/2".to_owned()),
+                            });
+                        }
+                        "telephone-event" => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some("101 telephone-event/8000".to_owned()),
+                            });
+                            attributes.push(Attribute {
+                                name: "fmtp".to_owned(),
+                                value: Some("101 0-16".to_owned()),
+                            });
+                        }
+                        _ => {
+                            attributes.push(Attribute {
+                                name: "rtpmap".to_owned(),
+                                value: Some(format!(
+                                    "{}/{}/{}/{}/",
+                                    codec.pt(),
+                                    codec.name(),
+                                    codec.clock_rate(),
+                                    codec.channels()
+                                )),
+                            });
+                        }
+                    }
+                    media_formats.push(codec.pt().to_string());
+                }
+
+                MediaDescription {
+                    media_type: sdp_media_stream.media_type,
+                    proto: sdp_media_stream.transport,
+                    port: sdp_media_stream.port,
+                    number_of_ports: None,
+                    media_formats,
+                    title: None,
+                    connection_information: None,
+                    bandwidth_information: vec![],
+                    attributes,
+                }
+            })
+            .collect();
+
+        if let Some(m) = media.last_mut() {
+            m.attributes.push(Attribute {
+                name: "ptime".to_owned(),
+                value: Some("20".to_owned()),
+            });
+
+            m.attributes.push(Attribute {
+                name: "maxptime".to_owned(),
+                value: Some("150".to_owned()),
+            });
+
+            m.attributes.push(Attribute {
+                name: config.direction.to_string(),
+                value: None,
+            });
+        }
+
+        SessionDescription {
+            origin: Origin {
+                user: "-".to_owned(),
+                session_id: rand::random::<u64>(),
+                session_version: rand::random::<u64>(),
+                nettype: NetType::IN,
+                addrtype: if config.origin_ip.is_ipv4() {
+                    AddrType::IP4
+                } else {
+                    AddrType::IP6
+                },
+                unicast_address: config.origin_ip.to_string(),
+            },
+            session_name: "-".to_owned(),
+            session_information: None,
+            uri: None,
+            email_address: None,
+            phone_number: None,
+            connection_information: Some(ConnectionInformation {
+                nettype: NetType::IN,
+                addrtype: if config.origin_ip.is_ipv4() {
+                    AddrType::IP4
+                } else {
+                    AddrType::IP6
+                },
+                connection_address: config.origin_ip,
+            }),
+            bandwidth_information: vec![],
+            attributes: vec![],
+            time: vec![TimeDescription {
+                time_active: TimeActive {
+                    start_time: 0,
+                    stop_time: 0,
+                },
+                repeat_times: vec![],
+            }],
+            media,
+        }
     }
 
-    pub fn remote_offer(&self) -> Option<&SessionDescription> {
-        self.remote_offer.as_ref()
+    pub fn local_sdp(&self) -> Option<&SessionDescription> {
+        match self {
+            Self::LocalOffered { offer, .. } => Some(offer),
+            Self::Complete {
+                offer,
+                role: Role::Offerer,
+                ..
+            } => Some(offer),
+            Self::Complete {
+                answer,
+                role: Role::Answerer,
+                ..
+            } => Some(answer),
+            _ => None,
+        }
+    }
+
+    pub fn remote_sdp(&self) -> Option<&SessionDescription> {
+        match self {
+            Self::RemoteOffered { offer, .. } => Some(offer),
+            Self::Complete {
+                offer,
+                role: Role::Answerer,
+                ..
+            } => Some(offer),
+            Self::Complete {
+                answer,
+                role: Role::Offerer,
+                ..
+            } => Some(answer),
+            _ => None,
+        }
     }
 
     pub fn answer(&self) -> Option<&SessionDescription> {
-        self.answer.as_ref()
-    }
-
-    pub fn state(&self) -> NegotiatorState {
-        self.state
+        match self {
+            Self::Complete { answer, .. } => Some(answer),
+            _ => None,
+        }
     }
 }
 
-impl SdpOfferParams {
+impl SdpConfig {
     pub fn new(origin_ip: IpAddr, direction: Direction) -> Self {
         Self {
             origin_ip,
@@ -442,6 +420,60 @@ impl SdpOfferParams {
 
     pub fn ip(&self) -> IpAddr {
         self.origin_ip
+    }
+
+    pub fn builder() -> SdpConfigBuilder {
+        Default::default()
+    }
+}
+
+impl Default for SdpConfigBuilder {
+    fn default() -> Self {
+        SdpConfigBuilder {
+            address: IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            direction: Direction::SendRecv,
+            port: 0,
+            codecs: vec![],
+            transport: SdpTransport::RTPAVP,
+        }
+    }
+}
+
+impl SdpConfigBuilder {
+    pub fn address(mut self, addr: impl Into<IpAddr>) -> Self {
+        self.address = addr.into();
+        self
+    }
+
+    pub fn direction(mut self, d: Direction) -> Self {
+        self.direction = d;
+        self
+    }
+
+    pub fn audio(self, port: u16, codecs: impl IntoIterator<Item = Codec>) -> Self {
+        self.audio_with_transport(SdpTransport::RTPAVP, port, codecs)
+    }
+
+    pub fn audio_with_transport(
+        mut self,
+        transport: SdpTransport,
+        port: u16,
+        codecs: impl IntoIterator<Item = Codec>,
+    ) -> Self {
+        self.port = port;
+        self.codecs = codecs.into_iter().collect();
+        self.transport = transport;
+        self
+    }
+
+    pub fn build(self) -> SdpConfig {
+        SdpConfig {
+            origin_ip: self.address,
+            direction: self.direction,
+            media_streams: vec![
+                SdpMediaStream::audio(self.port, self.transport).with_codecs(self.codecs),
+            ],
+        }
     }
 }
 
@@ -489,52 +521,18 @@ mod tests {
     use super::*;
     use crate::codec::Codec;
     use crate::sdp::Direction;
-    use crate::sdp::parser::SdpParser;
-
-    #[test]
-    fn test_simple_offer_answer_exchange() {
-        let offer = concat!(
-            "v=0\r\n",
-            "o=Tesla 2890844526 2890844526 IN IP4 lab.high-voltage.org\r\n",
-            "s=-\r\n",
-            "c=IN IP4 100.101.102.103\r\n",
-            "t=0 0\r\n",
-            "m=audio 49170 RTP/AVP 0 8\r\n",
-            "a=rtpmap:0 PCMU/8000\r\n",
-            "a=rtpmap:8 PCMA/8000\r\n",
-        );
-
-        let answer = concat!(
-            "v=0\r\n",
-            "o=Marconi 2890844526 2890844526 IN IP4 tower.radio.org\r\n",
-            "s=-\r\n",
-            "c=IN IP4 200.201.202.203\r\n",
-            "t=0 0\r\n",
-            "m=audio 60000 RTP/AVP 8\r\n",
-            "a=rtpmap:8 PCMA/8000\r\n",
-        );
-
-        let remote_offer = SdpParser::parse(offer).unwrap();
-        let local_sdp = SdpParser::parse(answer).unwrap();
-
-        let mut nego = Negotiator::with_remote(remote_offer);
-
-        nego.set_local_offer(local_sdp).unwrap();
-
-        let _answer = nego.create_answer().unwrap();
-    }
 
     #[test]
     fn test_generate_offer() {
-        let negotiator = Negotiator::new();
+        let mut negotiator = Negotiator::new();
 
-        let offer_params = SdpOfferParams::new(IpAddr::from([127, 0, 0, 1]), Direction::SendRecv)
+        let offer_params = SdpConfig::new(IpAddr::from([127, 0, 0, 1]), Direction::SendRecv)
             .add_media_stream(
                 SdpMediaStream::audio(34391, SdpTransport::RTPAVP)
                     .with_codecs(vec![Codec::ULAW, Codec::ALAW]),
             );
 
-        let offer = negotiator.create_offer(&offer_params).unwrap();
+        let offer = negotiator.generate_offer(&offer_params).unwrap();
 
         println!("{}", offer.encode().unwrap());
     }

@@ -84,7 +84,7 @@ impl fmt::Display for SessionDescription {
             write!(
                 f,
                 "c={} {} {}\r\n",
-                c.nettype, c.addrtype, c.conection_address
+                c.nettype, c.addrtype, c.connection_address
             )?;
         }
         //  b=<bwtype>:<bandwidth>
@@ -144,7 +144,7 @@ impl fmt::Display for SessionDescription {
                 write!(
                     f,
                     "c={} {} {}\r\n",
-                    c.nettype, c.addrtype, c.conection_address
+                    c.nettype, c.addrtype, c.connection_address
                 )?;
             }
 
@@ -172,6 +172,17 @@ impl fmt::Display for SessionDescription {
         Ok(())
     }
 }
+
+impl SessionDescription {
+    pub fn connection_addr(&self, media: &MediaDescription) -> Option<IpAddr> {
+        media
+            .connection_information
+            .as_ref()
+            .map(|c| c.connection_address)
+            .or_else(|| self.connection_information.as_ref().map(|c| c.connection_address))
+    }
+}
+
 impl utils::encode::Encode for SessionDescription {
     type Buffer = String;
     type Error = std::fmt::Error;
@@ -240,7 +251,7 @@ impl fmt::Display for NetType {
 pub struct ConnectionInformation {
     pub nettype: NetType,
     pub addrtype: AddrType,
-    pub conection_address: IpAddr,
+    pub connection_address: IpAddr,
 }
 
 #[derive(Clone, Debug)]
@@ -286,28 +297,16 @@ pub struct Attribute {
     pub value: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Origin {
     pub user: String,
     pub session_id: u64,
     pub session_version: u64,
     pub nettype: NetType,
     pub addrtype: AddrType,
-    pub unicast_address: IpAddr,
+    pub unicast_address: String, // Change to Host
 }
 
-impl Default for Origin {
-    fn default() -> Self {
-        Self {
-            user: Default::default(),
-            session_id: Default::default(),
-            session_version: Default::default(),
-            nettype: Default::default(),
-            addrtype: Default::default(),
-            unicast_address: utils::local_ip::get_local_ip_addr(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Copy)]
 pub enum MediaType {
@@ -383,7 +382,7 @@ pub struct RtpMap {
     pub param: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub enum Direction {
     Unspecified,
     #[default]

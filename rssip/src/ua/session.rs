@@ -1,8 +1,5 @@
-use media::rtcp::packet::RtcpPacket;
-use media::rtp::packet::RtpPacket;
-use media::rtp::{RtpMessage, RtpSession};
 use media::sdp::SessionDescription;
-use media::sdp::negotiator::{Negotiator, NegotiatorState, SdpOfferParams};
+use media::sdp::negotiator::{Negotiator, SdpConfig};
 use media::sdp::parser::SdpParser;
 use utils::encode::Encode;
 
@@ -38,25 +35,13 @@ pub struct Calling {
 
 pub struct Accepted {
     dialog: Dialog,
-    rtp: RtpSession,
-    cause: Option<TerminatedCause>,
 }
 
 pub struct InvitationParams {
     pub from_uri: SipUri,
     pub to_uri: SipUri,
     pub contact: Option<SipUri>,
-    pub sdp: Option<SdpOfferParams>,
-}
-
-pub enum MediaEvent {
-    Rtp(RtpPacket),
-    Rtcp(RtcpPacket),
-}
-
-pub enum DialogEvent {
-    Reinvite(IncomingRequest),
-    Request(IncomingRequest),
+    pub sdp: Option<SdpConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,9 +50,9 @@ pub enum TerminatedCause {
 }
 
 pub enum SessionEvent {
-    Media(MediaEvent),
-    Dialog(DialogEvent),
+    Reinvite(IncomingRequest),
     Terminated(TerminatedCause),
+    // Dtmf { digit: char, duration_ms: u32 },
 }
 
 impl Session<Calling> {
@@ -98,11 +83,8 @@ impl Session<Calling> {
         let mut negotiator = Negotiator::default();
 
         if let Some(params) = sdp {
-            let offer = negotiator.create_offer(&params)?;
+            let offer = negotiator.generate_offer(&params)?;
             let encoded = offer.encode()?;
-
-            negotiator.set_local_offer(offer)?;
-
             let sip_body = SipBody::from(bytes::Bytes::from(encoded));
 
             request
@@ -126,10 +108,7 @@ impl Session<Calling> {
         Ok(response)
     }
 
-    pub async fn receive_answer(
-        mut self,
-        offer_params: Option<&SdpOfferParams>,
-    ) -> Result<Session<Accepted>> {
+    pub async fn receive_answer(mut self, sdp: Option<&SdpConfig>) -> Result<Session<Accepted>> {
         let Calling {
             mut dialog,
             client_tsx,
@@ -137,40 +116,35 @@ impl Session<Calling> {
 
         let response = client_tsx.receive_final_response().await?;
 
-        // fn negotiate_sdp(&self, offer_params: Option<&SdpOfferParams>) {}
-
         match response.status_line.code.as_u16() {
             // 13.2.2.4 2xx Responses
             200..=299 => {
                 let ack_body = if let Some(body) = &response.body {
                     let remote_sdp = Self::parse_sdp(body)?;
-                    let nego_state = self.negotiator.state();
 
-                    if let NegotiatorState::Initial = nego_state {
-                        let Some(offer_params) = offer_params else {
-                            return Err(Error::Custom(
-                                "offer required to answer a delayed offer".into(),
-                            ));
-                        };
-                        let local_sdp = self.negotiator.create_offer(offer_params)?;
+                    match self.negotiator {
+                        Negotiator::Idle => {
+                            let Some(sdp) = sdp else {
+                                return Err(Error::Custom(
+                                    "offer required to answer a delayed offer".into(),
+                                ));
+                            };
+                            let answer = self.negotiator.generate_answer(sdp)?;
+                            let answer = answer.encode()?;
 
-                        self.negotiator.set_local_offer(local_sdp)?;
-                        self.negotiator.set_remote_offer(remote_sdp)?;
+                            let ack_body = SipBody::from(bytes::Bytes::from(answer));
 
-                        let answer = self.negotiator.create_answer()?;
-                        let answer = answer.encode()?;
-
-                        let ack_body = SipBody::from(bytes::Bytes::from(answer));
-
-                        Some(ack_body)
-                    } else if let NegotiatorState::LocalOffer = nego_state {
-                        // This is an answer.
-                        self.negotiator.process_answer(remote_sdp)?;
-                        None
-                    } else if let NegotiatorState::RemoteOffer = nego_state {
-                        todo!("we received early offer on 180 Ringing response (Early Media)")
-                    } else {
-                        unreachable!()
+                            Some(ack_body)
+                        }
+                        Negotiator::LocalOffered { .. } => {
+                            // This is an answer.
+                            self.negotiator.receive_answer(remote_sdp)?;
+                            None
+                        }
+                        Negotiator::RemoteOffered { .. } => {
+                            todo!("we received early offer on 180 Ringing response (Early Media)")
+                        }
+                        _ => unreachable!(),
                     }
                 } else {
                     None
@@ -184,18 +158,8 @@ impl Session<Calling> {
 
                 endpoint.send_outgoing_request(&mut outgoing).await?;
 
-                let local_sdp = self.negotiator.local_offer().expect("a offer");
-                let remote_sdp = self.negotiator.remote_offer().expect("a offer");
-                let answer = self.negotiator.answer().expect("a answer");
-
-                let rtp = Self::init_rtp(local_sdp, remote_sdp, answer).await?;
-
                 Ok(Session {
-                    state: Accepted {
-                        dialog,
-                        rtp,
-                        cause: None,
-                    },
+                    state: Accepted { dialog },
                     negotiator: self.negotiator,
                 })
             }
@@ -226,14 +190,14 @@ impl Session<Incoming> {
         }
         let dialog = Dialog::create_uas(&request, contact, endpoint.clone())?;
 
-        let mut negotiator = Negotiator::new();
-
-        if let Some(body) = &request.body {
+        let negotiator = if let Some(body) = &request.body {
             // EarlyOffer
             let remote_sdp = Self::parse_sdp(body)?;
 
-            negotiator.set_remote_offer(remote_sdp)?;
-        }
+            Negotiator::RemoteOffered { offer: remote_sdp }
+        } else {
+            Negotiator::Idle
+        };
 
         let server_tsx = ServerTransaction::from_request(request, endpoint);
 
@@ -258,30 +222,32 @@ impl Session<Incoming> {
         Ok(())
     }
 
-    pub async fn accept(
-        mut self,
-        status_code: StatusCode,
-        reason_phrase: Option<ReasonPhrase>,
-        sdp_params: &SdpOfferParams,
-    ) -> Result<Session<Accepted>> {
+    pub async fn trying(&mut self) -> Result<()> {
+        self.progress(StatusCode::Trying, Some("Trying".into()))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn ringing(&mut self) -> Result<()> {
+        self.progress(StatusCode::Ringing, Some("Ringing".into()))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn accept(mut self, sdp: &SdpConfig) -> Result<Session<Accepted>> {
         let Incoming {
             server_tsx,
             mut dialog,
         } = self.state;
 
-        let mut sip_response = dialog.create_response(&server_tsx, status_code, reason_phrase);
+        let mut sip_response = dialog.create_response(&server_tsx, StatusCode::Ok, None);
 
-        let offer = self.negotiator.create_offer(sdp_params)?;
-
-        let our_sdp = if let NegotiatorState::RemoteOffer = self.negotiator.state() {
-            self.negotiator.set_local_offer(offer)?;
-            let answer = self.negotiator.create_answer()?;
+        let our_sdp = if let Negotiator::RemoteOffered { .. } = self.negotiator {
+            let answer = self.negotiator.generate_answer(sdp)?;
             answer.encode()?
         } else {
-            let encoded = offer.encode()?;
-            // Must be NegotiatorState::Initial
-            self.negotiator.set_local_offer(offer)?;
-            encoded
+            let offer = self.negotiator.generate_offer(sdp)?;
+            offer.encode()?
         };
 
         sip_response.body = Some(SipBody::from(bytes::Bytes::from(our_sdp)));
@@ -294,107 +260,55 @@ impl Session<Incoming> {
 
         let ack = dialog.wait_for_ack().await?;
 
-        if let NegotiatorState::LocalOffer = self.negotiator.state() {
+        if let Negotiator::LocalOffered { .. } = self.negotiator {
             let Some(body) = &ack.body else {
                 return Err(Error::Custom("missing answer on ack".into()));
             };
             let answer = Self::parse_sdp(body)?;
-            self.negotiator.process_answer(answer)?;
+            self.negotiator.receive_answer(answer)?;
         }
 
-        let local_sdp = self.negotiator.local_offer().expect("a offer");
-        let remote_sdp = self.negotiator.remote_offer().expect("a offer");
-        let answer = self.negotiator.answer().expect("a answer");
-
-        let rtp = Self::init_rtp(local_sdp, remote_sdp, answer).await?;
-
         Ok(Session {
-            state: Accepted {
-                dialog,
-                rtp,
-                cause: None,
-            },
+            state: Accepted { dialog },
             negotiator: self.negotiator,
         })
     }
 }
 
 impl Session<Accepted> {
-    pub async fn send_rtp(&mut self, data: &[u8], samples: u32) -> Result<()> {
-        self.state.rtp.write_rtp(data, samples).await?;
-        Ok(())
+    pub fn local_sdp(&self) -> &SessionDescription {
+        self.negotiator.local_sdp().expect("a offer")
     }
-    pub async fn pool_evt(&mut self) -> Result<SessionEvent> {
-        let Accepted { rtp, dialog, cause } = &mut self.state;
-        if let Some(cause) = cause {
-            return Ok(SessionEvent::Terminated(*cause));
-        }
-        tokio::select! {
-            Ok(request) = dialog.receive_request() => {
-                match request.req_line.method {
-                    SipMethod::Invite => {
-                        return Ok(SessionEvent::Dialog(DialogEvent::Reinvite(request)));
-                    }
-                    SipMethod::Bye => {
-                        let bye_tsx = ServerTransaction::from_request(request, dialog.endpoint().clone());
 
-                        dialog.final_response(bye_tsx, StatusCode::Ok).await?;
+    pub fn remote_sdp(&self) -> &SessionDescription {
+        self.negotiator.remote_sdp().expect("a offer")
+    }
 
-                        let term_cause = TerminatedCause::ByeReceived;
+    pub async fn next_event(&mut self) -> Option<SessionEvent> {
+        let Accepted { dialog } = &mut self.state;
 
-                        *cause = Some(term_cause);
+        let request = dialog.receive_request().await.ok()?;
 
-                        return Ok(SessionEvent::Terminated(term_cause));
-                    }
-                    method => {
-                        log::debug!("received request: {}", method);
-                        return Ok(SessionEvent::Dialog(DialogEvent::Request(request)));
-                    }
-                }
-            },
-            Some(media) = rtp.receive() => match media {
-                RtpMessage::Rtp(rtp) => {
-                    return Ok(SessionEvent::Media(MediaEvent::Rtp(rtp)));
-                },
-                RtpMessage::Rtcp(rtcp) =>  {
-                    return Ok(SessionEvent::Media(MediaEvent::Rtcp(rtcp)));
-                },
+        match request.req_line.method {
+            SipMethod::Invite => {
+                return Some(SessionEvent::Reinvite(request));
+            }
+            SipMethod::Bye => {
+                let bye_tsx = ServerTransaction::from_request(request, dialog.endpoint().clone());
+
+                dialog.final_response(bye_tsx, StatusCode::Ok).await.ok()?;
+
+                return Some(SessionEvent::Terminated(TerminatedCause::ByeReceived));
+            }
+            method => {
+                log::debug!("received request (ignoring): {}", method);
+                return None;
             }
         }
     }
 }
 
 impl<S> Session<S> {
-    pub async fn init_rtp(
-        local_sdp: &SessionDescription,
-        remote_sdp: &SessionDescription,
-        answer: &SessionDescription,
-    ) -> Result<RtpSession> {
-        let local_media_description = &local_sdp.media[0];
-        let ip_addr = local_media_description
-            .connection_information
-            .as_ref()
-            .map(|c| c.conection_address)
-            .unwrap_or(local_sdp.origin.unicast_address);
-
-        let local_addr = (ip_addr, local_media_description.port);
-
-        let remote_media_description = &remote_sdp.media[0];
-        let addr = remote_media_description
-            .connection_information
-            .as_ref()
-            .map(|c| c.conection_address)
-            .unwrap_or(remote_sdp.origin.unicast_address);
-
-        let remote_addr = (addr, remote_media_description.port);
-
-        let pt: u8 = answer.media[0].media_formats[0].parse().unwrap();
-
-        let session = RtpSession::create(local_addr, remote_addr, pt).await?;
-
-        Ok(session)
-    }
-
     fn parse_sdp(body: &SipBody) -> Result<SessionDescription> {
         let sdp = SdpParser::parse(body.as_ref())?;
         Ok(sdp)

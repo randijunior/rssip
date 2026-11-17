@@ -23,6 +23,7 @@ pub enum DialogState {
     Init,
     Early,
     Confirmed,
+    Terminated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -282,6 +283,10 @@ impl Dialog {
     }
 
     pub(super) async fn receive(&mut self) -> Result<IncomingMessage> {
+        if self.state == DialogState::Terminated {
+            return Err(Error::Dialog("Dialog terminated!".to_owned()));
+        }
+
         let Some(msg) = self.receiver.recv().await else {
             return Err(Error::ChannelClosed);
         };
@@ -351,6 +356,10 @@ impl Dialog {
             && let Some(contact) = find_map_header!(request.headers, Contact).cloned()
         {
             self.contact = contact;
+        }
+
+        if method == SipMethod::Bye {
+            self.state = DialogState::Terminated;
         }
 
         Ok(())

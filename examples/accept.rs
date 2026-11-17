@@ -1,29 +1,29 @@
 use std::error::Error;
-use std::net::IpAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use rssip::IncomingRequest;
 use rssip::endpoint::{self, Endpoint, Takeable};
 use rssip::media::codec::Codec;
-use rssip::media::sdp::negotiator::{SdpMediaStream, SdpOfferParams};
-use rssip::media::sdp::{Direction, SdpTransport};
+use rssip::media::rtp::{RtpMessage, RtpSession};
+use rssip::media::sdp::Direction;
+use rssip::media::sdp::negotiator::SdpConfig;
 use rssip::message::SipBody;
 use rssip::message::headers::Contact;
 use rssip::message::method::SipMethod;
 use rssip::message::status_code::StatusCode;
 use rssip::transaction::{ServerTransaction, TsxPlugin};
 use rssip::ua::dialog::DialogPlugin;
-use rssip::ua::session::{MediaEvent, Session, SessionEvent};
+use rssip::ua::session::{Session, SessionEvent};
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoLocal;
 
-pub struct Accept {
+pub struct Acceptor {
     contact: Contact,
     media_port: AtomicU16,
 }
 
 #[async_trait::async_trait]
-impl endpoint::Plugin for Accept {
+impl endpoint::Plugin for Acceptor {
     fn name(&self) -> &'static str {
         "accept"
     }
@@ -44,34 +44,49 @@ impl endpoint::Plugin for Accept {
             return;
         };
         let contact = self.contact.clone();
+        let port = self.media_port.fetch_add(1, Ordering::Relaxed);
 
         let mut session = Session::from_invite(request, contact, endpoint.clone()).unwrap();
 
-        session.progress(StatusCode::Trying, None).await.unwrap();
+        session.trying().await.unwrap();
 
-        let sdp = SdpOfferParams::new(IpAddr::from([127, 0, 0, 1]), Direction::SendRecv);
+        let sdp = SdpConfig::builder()
+            .address([127, 0, 0, 1])
+            .direction(Direction::SendRecv)
+            .audio(port, [Codec::ULAW, Codec::ALAW])
+            .build();
 
-        let media_port = self.media_port.fetch_add(1, Ordering::Relaxed);
+        let mut accepted = session.accept(&sdp).await.unwrap();
 
-        let sdp = sdp.add_media_stream(
-            SdpMediaStream::audio(media_port, SdpTransport::RTPAVPF)
-                .with_codecs(vec![Codec::ULAW, Codec::ALAW]),
-        );
+        let local = accepted.local_sdp();
+        let remote = accepted.remote_sdp();
 
-        let mut accepted = session.accept(StatusCode::Ok, None, &sdp).await.unwrap();
+        let l = &local.media[0];
+        let r = &remote.media[0];
+
+        let l_ip = local.connection_addr(l).unwrap();
+        let r_ip = remote.connection_addr(r).unwrap();
+
+        let payload_type = l.media_formats[0].parse().unwrap();
+
+        let mut rtp = RtpSession::create((l_ip, l.port), (r_ip, r.port), payload_type)
+            .await
+            .unwrap();
 
         tokio::spawn(async move {
-            while let Ok(evt) = accepted.pool_evt().await {
-                match evt {
-                    SessionEvent::Terminated(cause) => {
-                        println!("Terminated, cause = {:#?}", cause);
-                        break;
+            loop {
+                tokio::select! {
+                    evt = accepted.next_event() => match evt {
+                        Some(SessionEvent::Terminated(cause)) => { println!("{cause:?}"); break; }
+                        Some(_) => {}
+                        None => break,
+                    },
+                    Some(pkt) = rtp.receive() => match pkt {
+                        RtpMessage::Rtp(pkt) => {
+                            rtp.write_rtp(&pkt.payload, 160).await.unwrap();
+                        },
+                        RtpMessage::Rtcp(_pkt) => ()
                     }
-                    SessionEvent::Media(MediaEvent::Rtp(rtp)) => {
-                        println!("GOT RTP: {}", rtp);
-                        accepted.send_rtp(&rtp.payload, 160).await.unwrap();
-                    }
-                    _ => continue,
                 }
             }
         });
@@ -114,7 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_plugin(Logger)
         .with_plugin(DialogPlugin::default())
         .with_plugin(TsxPlugin::default())
-        .with_plugin(Accept {
+        .with_plugin(Acceptor {
             media_port: AtomicU16::new(2048),
             contact: "<sip:0.0.0.0:8089>".parse().unwrap(),
         })

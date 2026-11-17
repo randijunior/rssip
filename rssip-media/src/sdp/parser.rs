@@ -202,7 +202,7 @@ impl<'buf> SdpParser<'buf> {
         self.scanner.advance_n(3);
 
         self.handle_ws();
-        let conection_address =
+        let connection_address =
             self.read_line()?
                 .parse()
                 .map_err(|err| ParseSdpError::SyntaxError {
@@ -213,7 +213,7 @@ impl<'buf> SdpParser<'buf> {
         Ok(ConnectionInformation {
             nettype,
             addrtype,
-            conection_address,
+            connection_address,
         })
     }
 
