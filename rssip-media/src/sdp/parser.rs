@@ -315,6 +315,7 @@ impl<'buf> SdpParser<'buf> {
             "TIAS" => Bwtype::TIAS,
             other => Bwtype::Other(other.to_owned()),
         };
+        self.scanner.next_byte()?;
         let bandwidth = self.scanner.scan_u64()?;
 
         Ok(BandwidthInformation { bwtype, bandwidth })
@@ -388,4 +389,18 @@ impl<'buf> SdpParser<'buf> {
 #[must_use]
 pub(crate) fn is_token(b: u8) -> bool {
     TOKEN_TAB[b as usize]
+}
+
+#[cfg(test)]
+mod tests { 
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        let sdp = "v=0
+o=- 4003940860 4003940860 IN IP4 192.168.100.37
+s=pjmedia
+b=AS:84";
+SdpParser::parse(&sdp).unwrap();
+    }
 }
