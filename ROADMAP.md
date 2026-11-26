@@ -8,4 +8,4 @@
 	- Sessions
 - **[RFC8866](https://www.rfc-editor.org/rfc/rfc8866.html): SDP**
 - **[RFC3264](https://www.rfc-editor.org/rfc/rfc3264.html): SDP Offer/Answer**
-- **[RFC3551](https://www.rfc-editor.org/rfc/rfc3551.html): RTP/RTCP**
+- **[RFC3550](https://www.rfc-editor.org/rfc/rfc3551.html): RTP**
